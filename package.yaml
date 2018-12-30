@@ -1,0 +1,25 @@
+name: tptp-parser
+
+dependencies:
+- base >= 4.7 && < 5
+- either
+- tasty-hunit
+- tasty
+- parsec
+- transformers
+
+ghc-options: -Wincomplete-patterns -Werror -fbreak-on-error
+
+library:
+  source-dirs: src
+  exposed-modules:
+    - TestBin
+
+tests:
+  test:
+    main: test.hs
+    source-dirs: bin
+    dependencies: tptp-parser
+
+# executables:
+
