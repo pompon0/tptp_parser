@@ -2,4 +2,6 @@ module Build where
 
 import Test.Tasty (testGroup)
 
-tests = testGroup "all" []
+import qualified ParserTest
+
+tests = testGroup "all" [ParserTest.tests]

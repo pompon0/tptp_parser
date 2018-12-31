@@ -7,6 +7,11 @@ dependencies:
 - tasty
 - parsec
 - transformers
+- unix
+- bytestring
+- tar
+- http-conduit
+- zlib
 
 ghc-options: -Wincomplete-patterns -Werror -fbreak-on-error
 
@@ -14,6 +19,7 @@ library:
   source-dirs: src
   exposed-modules:
     - TestBin
+    - ParserBin
 
 tests:
   test:
@@ -21,5 +27,8 @@ tests:
     source-dirs: bin
     dependencies: tptp-parser
 
-# executables:
-
+executables:
+  parser:
+    main: parser.hs
+    source-dirs: bin
+    dependencies: tptp-parser 
