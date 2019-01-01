@@ -1,5 +1,14 @@
 name: tptp-parser
 
+extra-source-files:
+- proto/**/*.proto
+
+custom-setup:
+  dependencies:
+    - base
+    - Cabal
+    - proto-lens-setup
+
 dependencies:
 - base >= 4.7 && < 5
 - either
@@ -12,6 +21,11 @@ dependencies:
 - tar
 - http-conduit
 - zlib
+- proto-lens-runtime
+- proto-lens
+- microlens
+- lens-labels
+- text
 
 ghc-options: -Wincomplete-patterns -Werror -fbreak-on-error
 
@@ -20,6 +34,7 @@ library:
   exposed-modules:
     - TestBin
     - ParserBin
+    - Proto.Tptp
 
 tests:
   test:

@@ -1,5 +1,7 @@
 module ParserBin(main) where
 
+import qualified Data.ProtoLens.TextFormat as TextFormat
+
 import qualified Trace
 import qualified Parser
 import Data.Either
@@ -12,4 +14,4 @@ main = do
     Left errStack -> do
       putStrLn ":: ERROR ::"
       mapM_ putStrLn errStack
-    Right res -> print res 
+    Right res -> putStrLn (TextFormat.showMessage res) 

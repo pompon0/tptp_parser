@@ -1,0 +1,73 @@
+syntax = "proto3";
+package tptp;
+
+message File {
+  repeated Input input = 1;
+}
+
+// currently only FOF formula is supported
+message Input {
+  enum Role {
+    UNKNOWN = 0;
+    AXIOM = 1;
+    HYPOTHESIS = 2;
+    DEFINITION = 3;
+    ASSUMPTION = 4;
+    LEMMA = 5;
+    THEOREM = 6;
+    COROLLARY = 7;
+    CONJECTURE = 8;
+    NEGATED_CONJECTURE = 9;
+    PLAIN = 10;
+    TYPE = 11;
+    FI_DOMAIN = 12;
+    FI_FUNCTORS = 13;
+    FI_PREDICATES = 14;
+  }
+  
+  string name = 1;
+  Role role = 2;
+  Formula formula = 3;
+}
+
+message Formula {
+  message Pred {
+    enum Type { UNKNOWN = 0; CUSTOM = 1; EQ = 2; }
+    Type type = 1;
+    string name = 2;
+    repeated Term args = 3;
+  }
+  message Quant {
+    enum Type { UNKNOWN = 0; FORALL = 1; EXISTS = 2; }
+    Type type = 1;
+    repeated string var = 2;
+    Formula sub = 3;
+  }
+  message Operator {
+    enum Type {
+      UNKNOWN = 0;
+      NEG = 1;
+      OR = 2;
+      AND = 3;
+      IFF = 4;
+      IMPL = 5;
+      XOR = 6;
+      NOR = 7;
+      NAND = 8;
+    }
+    Type type = 1;
+    repeated Formula args = 2; 
+  }
+  oneof formula {
+    Pred pred = 1;
+    Quant quant = 2;
+    Operator op = 3;
+  }
+}
+
+message Term {
+  enum Type { UNKNOWN = 0; VAR = 1; EXP = 2; }
+  Type type = 1;
+  string name = 2;
+  repeated Term args = 3;
+}
