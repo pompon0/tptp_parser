@@ -1,10 +1,15 @@
+{-# LANGUAGE OverloadedLabels #-}
 module ParserBin(main) where
 
 import qualified Data.ProtoLens.TextFormat as TextFormat
+import Lens.Micro((.~),(^.),(&))
+import Lens.Labels.Unwrapped ()
+import Data.Either
 
+import qualified Form
 import qualified Trace
 import qualified Parser
-import Data.Either
+
 
 main = do
   input <- getContents
@@ -14,4 +19,7 @@ main = do
     Left errStack -> do
       putStrLn ":: ERROR ::"
       mapM_ putStrLn errStack
-    Right res -> putStrLn (TextFormat.showMessage res) 
+    Right res -> do
+      let formulas = map (\i -> i^. #formula) (res^. #input)
+      mapM (\f -> putStrLn $ show $ Form.fromProto $ f) formulas
+      putStrLn (TextFormat.showMessage res) 

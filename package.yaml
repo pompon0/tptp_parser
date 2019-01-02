@@ -27,6 +27,8 @@ dependencies:
 - microlens
 - lens-labels
 - text
+- containers
+- mtl
 
 ghc-options: -Wincomplete-patterns -Werror -fbreak-on-error
 
