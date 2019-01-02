@@ -18,6 +18,7 @@ dependencies:
 - transformers
 - unix
 - bytestring
+- utf8-string
 - tar
 - http-conduit
 - zlib

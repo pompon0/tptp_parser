@@ -6,9 +6,11 @@ import Test.Tasty.HUnit (testCase,assertFailure,assertBool,(@=?))
 import qualified Network.HTTP.Simple as S
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Char8 as B8
+import qualified Data.ByteString.Lazy.UTF8 as BU
 import qualified Codec.Archive.Tar as Tar
 import qualified Codec.Archive.Tar.Entry as Tar.Entry
 import qualified Codec.Compression.GZip as GZip 
+import qualified Data.ProtoLens.TextFormat as TextFormat
 
 import Data.Either
 import qualified Parser
@@ -16,21 +18,28 @@ import qualified Trace
 
 tests = testGroup "ParserTest" [ testCase "mizar" mizar ]
 
-parseTest :: Tar.Entry -> IO ()
+inputFile = "http://cl-informatik.uibk.ac.at/cek/grzegorz/f.tgz"
+outputFile = "/tmp/f.tgz"
+
+parseTest :: Tar.Entry -> IO Tar.Entry
 parseTest entry = do
   let path = Tar.entryPath entry
   case Tar.entryContent entry of
     Tar.NormalFile x _ -> do
       resOrErr <- Trace.evalIO (Parser.parse (B8.unpack $ B.toStrict x))
       case resOrErr of
-        Left errStack -> putStrLn (path ++ " - " ++ show errStack) 
-        Right res -> putStrLn (path ++ " - OK")
-    _ -> putStrLn (path ++ " - not a file")
+        Left errStack -> assertFailure (path ++ " - " ++ show errStack)
+        Right res -> do
+          putStrLn (path ++ " - OK")
+          return $ Tar.Entry.fileEntry (Tar.Entry.entryTarPath entry) (BU.fromString $ TextFormat.showMessage res)
+    _ -> assertFailure (path ++ " - not a file")
 
 mizar = do
-  req <- S.parseRequest "http://cl-informatik.uibk.ac.at/cek/grzegorz/f.tgz"
+  req <- S.parseRequest inputFile
   resp <- S.httpBS req
   let entriesStream = Tar.read (GZip.decompress $ B.fromStrict $ S.getResponseBody resp)
   case Tar.foldlEntries (\a e -> e:a) [] entriesStream of
     Left (e,a) -> assertFailure (show e)
-    Right entries -> mapM_ parseTest entries
+    Right entries -> do
+      outEntries <- mapM parseTest entries
+      B.writeFile outputFile $ GZip.compress $ Tar.write outEntries
