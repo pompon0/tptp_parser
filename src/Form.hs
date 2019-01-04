@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Form where
 
 import Prelude hiding(fail)
@@ -12,11 +13,12 @@ import Lens.Labels.Unwrapped ()
 import qualified Data.Text as Text
 import qualified Data.List as List
 
+import Lib
 import qualified Proto.Tptp as T
 
 type FunName = Int
 type PredName = Int
-type Ref = Int
+type VarRef = Int
 
 data Form = Forall Form
   | Exists Form
@@ -27,25 +29,19 @@ data Form = Forall Form
   | Atom Pred
   deriving(Eq,Show)
 
-data Pred = Pred'Eq Term Term
-  | Pred'Custom { _Pred'name :: PredName, _Pred'args :: [Term] }
+data Pred = PEq Term Term
+  | PCustom { _Pred'name :: PredName, _Pred'args :: [Term] }
   deriving(Eq,Show)
 
-data Term = Var Ref
-  | Fun { _Fun'name :: FunName, _Fun'args :: [Term] }
+data Term = TVar VarRef | TFun FunName [Term]
   deriving(Eq,Show)
 
-fromProto :: T.Formula -> Either String Form 
+fromProto :: T.File -> Either String Form 
 fromProto f = let
-  (res,_) = StateM.runState (Except.runExceptT (_Form'fromProto f)) (State Map.empty Map.empty [])
+  (res,_) = StateM.runState (Except.runExceptT (_File'fromProto f)) (State Map.empty Map.empty [])
   in res
 
 ---------------------------------------
-
-getUnique :: Ord a => a -> Map.Map a Int -> (Int,Map.Map a Int)
-getUnique k m = case Map.lookup k m of
-  Just i -> (i,m)
-  Nothing -> (Map.size m, Map.insert k (Map.size m) m)
 
 data State = State {
   predNames :: Map.Map (Text.Text,Int) PredName,
@@ -80,12 +76,22 @@ lookupFunName name = do
   StateM.put $ s { funNames = fn }
   return i
 
-lookupVar :: Text.Text -> M Int
-lookupVar name = do
+lookupTVar :: Text.Text -> M Int
+lookupTVar name = do
   s <- StateM.get
   case (List.elemIndex name (varStack s)) of
     Just i -> return i
     Nothing -> fail ("variable " ++ show name ++ " not bound")
+
+_File'fromProto :: T.File -> M Form
+_File'fromProto f = do
+  let m = splitBy (\i -> i^. #role) (f^. #input) 
+  let unknown = Map.filterWithKey (\r _ -> not (elem r [T.Input'AXIOM,T.Input'CONJECTURE])) m
+  if unknown /= Map.empty then fail ("unexpected roles: " ++ show unknown) else do
+    formulas <- (mapM.mapM) (\(i::T.Input)-> _Form'fromProto (i^. #formula)) m
+    let axioms = Map.findWithDefault [] T.Input'AXIOM formulas
+    let conjs = Map.findWithDefault [] T.Input'CONJECTURE formulas
+    return $ Or [Neg (And axioms),And conjs]
 
 _Form'fromProto :: T.Formula -> M Form
 _Form'fromProto f =
@@ -131,19 +137,19 @@ _Pred'fromProto pred = do
   case (pred^. #type') of
     T.Formula'Pred'CUSTOM -> do {
       name <- lookupPredName (pred^. #name, length args);
-      return (Pred'Custom name args);
+      return (PCustom name args);
     }
     T.Formula'Pred'EQ -> case args of
-      [l,r] -> return (Pred'Eq l r)
+      [l,r] -> return (PEq l r)
       _ -> fail "args != [l,r]"
     _ -> fail "pred.type unknown"
 
 _Term'fromProto :: T.Term -> M Term
 _Term'fromProto term = case (term^. #type') of
-  T.Term'VAR -> lookupVar (term^. #name) >>= return . Var
+  T.Term'VAR -> lookupTVar (term^. #name) >>= return . TVar
   T.Term'EXP -> do {
     args <- mapM _Term'fromProto (term^. #args);
     name <- lookupFunName (term^. #name, length args);
-    return (Fun name args);
+    return (TFun name args);
   }
   _ -> fail "term.type unknown"

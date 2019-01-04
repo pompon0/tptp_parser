@@ -34,8 +34,9 @@ parseTest entry = do
       case resOrErr of
         Left errStack -> assertFailure (path ++ " - " ++ show errStack)
         Right res -> do
-          -- let formulas = map (\i -> i^. #formula) (res^. #input)
-          -- mapM (\f -> putStrLn $ show $ Form.fromProto $ f) formulas
+          case Form.fromProto res of
+            Left err -> assertFailure (path ++ " - " ++ err)
+            Right _ -> return ()
           putStrLn (path ++ " - OK")
           return $ Tar.Entry.fileEntry (Tar.Entry.entryTarPath entry) (BU.fromString $ TextFormat.showMessage res)
     _ -> assertFailure (path ++ " - not a file")

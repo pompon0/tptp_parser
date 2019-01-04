@@ -22,6 +22,7 @@ dependencies:
 - tar
 - http-conduit
 - zlib
+- lens
 - proto-lens-runtime
 - proto-lens
 - microlens

@@ -20,6 +20,5 @@ main = do
       putStrLn ":: ERROR ::"
       mapM_ putStrLn errStack
     Right res -> do
-      let formulas = map (\i -> i^. #formula) (res^. #input)
-      mapM (\f -> putStrLn $ show $ Form.fromProto $ f) formulas
+      putStrLn $ show $ Form.fromProto res
       putStrLn (TextFormat.showMessage res) 
