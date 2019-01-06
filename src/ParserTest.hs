@@ -1,52 +1,33 @@
-{-# LANGUAGE OverloadedLabels #-}
 module ParserTest(tests) where
 
 import Test.Tasty (testGroup)
-import Test.Tasty.HUnit (testCase,assertFailure,assertBool,(@=?))
+import Test.Tasty.HUnit (Assertion,testCaseSteps,testCase,assertFailure,assertBool,(@=?))
 
-import Lens.Micro((.~),(^.),(&))
-import Lens.Labels.Unwrapped ()
-import qualified Network.HTTP.Simple as S
-import qualified Data.ByteString.Lazy as B
-import qualified Data.ByteString.Char8 as B8
-import qualified Data.ByteString.Lazy.UTF8 as BU
-import qualified Codec.Archive.Tar as Tar
-import qualified Codec.Archive.Tar.Entry as Tar.Entry
-import qualified Codec.Compression.GZip as GZip 
-import qualified Data.ProtoLens.TextFormat as TextFormat
 import Data.Either
 
+import ConvBin(pullEntries)
 import qualified Parser
 import qualified Trace
 import qualified Form
+import qualified NNF
+import qualified Skolem
 
-tests = testGroup "ParserTest" [ testCase "mizar" mizar ]
+tests = testGroup "ParserTest" [testCaseSteps "ParserTest" test]
 
-inputFile = "http://cl-informatik.uibk.ac.at/cek/grzegorz/f.tgz"
-outputFile = "/tmp/f.tgz"
+test step = do
+  let testEntry (path,content) = do { step path; parseTest content }
+  pullEntries >>= mapM_ testEntry
 
-parseTest :: Tar.Entry -> IO Tar.Entry
-parseTest entry = do
-  let path = Tar.entryPath entry
-  case Tar.entryContent entry of
-    Tar.NormalFile x _ -> do
-      resOrErr <- Trace.evalIO (Parser.parse (B8.unpack $ B.toStrict x))
-      case resOrErr of
-        Left errStack -> assertFailure (path ++ " - " ++ show errStack)
-        Right res -> do
-          case Form.fromProto res of
-            Left err -> assertFailure (path ++ " - " ++ err)
-            Right _ -> return ()
-          putStrLn (path ++ " - OK")
-          return $ Tar.Entry.fileEntry (Tar.Entry.entryTarPath entry) (BU.fromString $ TextFormat.showMessage res)
-    _ -> assertFailure (path ++ " - not a file")
+assert :: Either String a -> IO a
+assert (Left errMsg) = assertFailure errMsg
+assert (Right v) = return v
 
-mizar = do
-  req <- S.parseRequest inputFile
-  resp <- S.httpBS req
-  let entriesStream = Tar.read (GZip.decompress $ B.fromStrict $ S.getResponseBody resp)
-  case Tar.foldlEntries (\a e -> e:a) [] entriesStream of
-    Left (e,a) -> assertFailure (show e)
-    Right entries -> do
-      outEntries <- mapM parseTest entries
-      B.writeFile outputFile $ GZip.compress $ Tar.write outEntries
+parseTest :: String -> Assertion
+parseTest content = do 
+  resOrErr <- Trace.evalIO (Parser.parse content)
+  case resOrErr of
+    Left errStack -> assertFailure (show errStack)
+    Right res -> do
+      form <- assert $ Form.fromProto res
+      let skol = Skolem.skol (NNF.nnf form)
+      return ()

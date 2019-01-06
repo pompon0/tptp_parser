@@ -7,6 +7,7 @@ import qualified Control.Monad.State.Lazy as StateM
 import Control.Lens (makeLenses, (^.), (%~), (.~), over, view, use, (.=), (%=))
 import qualified Data.Map as Map
 import qualified NNF as F
+import Data.List(intercalate)
 
 type PredName = F.PredName
 type FunName = Int
@@ -14,12 +15,25 @@ type VarName = Int
 
 data Form = And [Form]
   | Or [Form]
-  | Xor [Form]
   | PosAtom Pred
   | NegAtom Pred
-  deriving(Eq,Show)
-data Pred = PEq Term Term | PCustom PredName [Term] deriving(Eq,Show)
-data Term = TVar VarName | TFun FunName [Term] deriving(Eq,Show)
+  deriving(Eq)
+data Pred = PEq Term Term | PCustom PredName [Term] deriving(Eq)
+data Term = TVar VarName | TFun FunName [Term] deriving(Eq)
+
+instance Show Form where
+  show (And x) = "and( " ++ sepList x ++ ")"
+  show (Or x) = "or(" ++ sepList x ++ ")"
+  show (PosAtom p) = show p
+  show (NegAtom n) = "-" ++ show n
+
+instance Show Pred where
+  show (PEq l r) = "eq(" ++ sepList [l,r] ++ ")"
+  show (PCustom n x) = show n ++ "(" ++ sepList x ++ ")"
+
+instance Show Term where
+  show (TVar n) = "$" ++ show n
+  show (TFun n x) = show n ++ "(" ++ sepList x ++ ")"
 
 data State = State {
   _funNames :: Map.Map F.FunName FunName,
@@ -29,6 +43,11 @@ data State = State {
 }
 makeLenses ''State
 type M = StateM.State State
+empty = State Map.empty [] 0 0
+
+
+skol :: F.Form -> Form
+skol f = let (res,_) = StateM.runState (skolF f) empty in res
 
 lookupFunName :: F.PredName -> M FunName
 lookupFunName name = do
@@ -70,7 +89,6 @@ skolF f = case f of
     push (TVar nv) (skolF x)
   F.Or x -> mapM skolF x >>= return .Or
   F.And x -> mapM skolF x >>= return . And
-  F.Xor x -> mapM skolF x >>= return . Xor
   F.PosAtom p -> skolP p >>= return . PosAtom
   F.NegAtom p -> skolP p >>= return . NegAtom
 skolP p = case p of

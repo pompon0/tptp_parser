@@ -37,6 +37,7 @@ library:
   source-dirs: src
   exposed-modules:
     - TestBin
+    - ConvBin
     - ParserBin
     - Proto.Tptp
 
@@ -49,5 +50,9 @@ tests:
 executables:
   parser:
     main: parser.hs
+    source-dirs: bin
+    dependencies: tptp-parser 
+  conv:
+    main: conv.hs
     source-dirs: bin
     dependencies: tptp-parser 

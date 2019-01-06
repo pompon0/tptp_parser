@@ -24,17 +24,28 @@ data Form = Forall Form
   | Exists Form
   | And [Form]
   | Or [Form]
-  | Xor [Form]
+  | Xor Form Form
   | Neg Form
   | Atom Pred
-  deriving(Eq,Show)
+  deriving(Eq)
 
-data Pred = PEq Term Term
-  | PCustom { _Pred'name :: PredName, _Pred'args :: [Term] }
-  deriving(Eq,Show)
+data Pred = PEq Term Term | PCustom PredName [Term] deriving(Eq)
+data Term = TVar VarRef | TFun FunName [Term] deriving(Eq)
 
-data Term = TVar VarRef | TFun FunName [Term]
-  deriving(Eq,Show)
+instance Show Form where
+  show (Forall f) = "A " ++ show f
+  show (Exists f) = "E " ++ show f
+  show (And x) = "and(" ++ sepList x ++ ")"
+  show (Or x) = "or(" ++ sepList x ++ ")"
+  show (Xor l r) = "xor(" ++ sepList [l,r] ++ ")"
+  show (Neg f) = "-" ++ show f
+  show (Atom p) = show p
+instance Show Pred where
+  show (PEq l r) = "eq(" ++ sepList [l,r] ++ ")"
+  show (PCustom n x) = show n ++ "(" ++ sepList x ++ ")"
+instance Show Term where
+  show (TVar n) = "$" ++ show n
+  show (TFun n x) = show n ++ "(" ++ sepList x ++ ")"
 
 fromProto :: T.File -> Either String Form 
 fromProto f = let
@@ -107,7 +118,8 @@ _Form'fromProto f =
       f <- push vars (_Form'fromProto (quant^. #sub));
       return $ foldl (\x _-> c x) f vars
     }
-    Just (T.Formula'Op op) -> do {
+    Just (T.Formula'Op op) -> do { 
+      let { args2pair args = case args of { [l,r] -> return (l,r); _ -> fail "args != [l,r]" }};
       args <- mapM _Form'fromProto (op^. #args);
       case (op^. #type') of
         T.Formula'Operator'NEG -> do {
@@ -118,14 +130,18 @@ _Form'fromProto f =
         }
         T.Formula'Operator'OR -> return (Or args)
         T.Formula'Operator'AND -> return (And args)
-        T.Formula'Operator'IFF -> return (Neg (Xor args))
-        T.Formula'Operator'IMPL -> do {
-          (l,r) <- (case args of
-            [l,r] -> return (l,r)
-            _ -> fail "args != [l,r]");
-          return (Or [(Neg l),r])
+        T.Formula'Operator'IFF -> do {
+          (l,r) <- args2pair args;
+          return (Neg (Xor l r));
         }
-        T.Formula'Operator'XOR -> return (Xor args)
+        T.Formula'Operator'IMPL -> do {
+          (l,r) <- args2pair args;
+          return (Or [(Neg l),r]);
+        }
+        T.Formula'Operator'XOR -> do {
+          (l,r) <- args2pair args;
+          return (Xor l r);
+        }
         T.Formula'Operator'NOR -> return (Neg (Or args))
         T.Formula'Operator'NAND -> return (Neg (And args))
         _ -> fail "Formula'Operator'UNKNOWN'";
