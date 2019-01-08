@@ -65,6 +65,84 @@ Amodel Ey Ax f <=>
 Amodel Ax(y) Ey f
   for every choice of counter examples x
   exists y for which x(y) is not a counterexample
+
+psimplify1
+  Not False ->  True
+  Not True -> False
+  Not (Not p) = p
+  And p False = False
+  And False p = False
+  And p True = p
+  And True p = p
+  Or p False = p
+  Or False p = p
+  Or p True = True
+  Or True p = True
+  Imp False p = True
+  Imp p True = True
+  Imp True p = p
+  Imp p False = Not p
+  Iff p True = p
+  Iff True p = p
+  Iff p False = Not p
+  Iff False p = Not p
+  ? = ?
+psimplify fm = {apply psimplify1 bottom up on the subexpressions}
+
+simplify1
+  Forall x p = x\in p ? Forall x p : p
+  Exists x p = x\in p ? Exists x p : p
+
+simplify fm = {apply simplify1 bottom up on the subexpressions}
+
+nnf (And p q) = And (nnf p) (nnf q)
+nnf (Or p q) = Or (nnf p) (nnf q)
+nnf (Imp p q) = Or (nnf (not p)) (nnf q)
+nnf (Iff p q) = Or (And (nnf p) (nnf q)) (And (nnf (Not p)) (nnf (Not q)))
+nnf (Not (Not p)) = nnf p
+nnf (Not (And p q)) = Or (nnf (Not p)) (nnf (Not q))
+nnf (Not (Or p q)) = And (nnf (Not p)) (nnf (Not q))
+nnf (Not (Imp p q)) = And (nnf p) (nnf (Not q))
+nnf (Not (Iff p q)) = Or (And (nnf p) (Not (nnf q))) (And (Not (nnf p)) (nnf q))
+... forall/exists
+nnf ? = ?
+
+nnf2 = nnf . psimplify
+
+skolem (Exists y p) = 
+  vars = {free vars in p} - {y}
+  return $ skolem (replace y in p with f_y(vars))
+skolem (Forall x p) = return $ Forall x (skolem p)
+skolem (And p q) = and (skolem p) (skolem q)
+skolem (Or p q) = or (skolem p) (skolem q)
+skolem ? = ?
+
+generalize fm = {prepend Forall quantifiers for all free vars of fm}
+
+askolemize fm = skolem (nnf2 (simplify fm))
+tab fm = tableau [askolemize $ Not $ generalize fm]
+
+purednf (And p q) = {sum all pairs from (purednf p) and (purednf q)}
+purednf (Or p q) = {sum (purednf p) and (purednf q)}
+purednf ? = [[?]]
+purecnf fm = {negation of purednf (nnf (Not fm))}
+
+list_conj l = {Connect all literals in list l with And }
+simpdnf fm = {nontrivial, not subsumed elements of purednf (nnf fm)}
+simpcnf fm = {nontrivial, not subsumed elements of purecnf (fm)} // nnf can be skipped, because it is applied inside purecnf
+
+specialize fm = {drop leading Forall quantifiers}
+prenex fm = {run pullquants bottom-up on subexpressions of fm}
+
+
+pnf fm = prenex (nnf (simplify fm))
+pure_resolution fm = resloop {used=[], unused=simpcnf(specialize(pnf fm))}
+resolution fm = map (pure_resolution ** list_conj) (simpdnf $ askolemize $ Not $ generalize fm)
+
+exponential blowup:
+  removing <=>
+  conversion to DNF
+
 -}
 
 push :: Term -> M a -> M a

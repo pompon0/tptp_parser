@@ -5,6 +5,7 @@ module NNF(nnf,
 import qualified Form as F
 import Lib
 
+
 type PredName = F.PredName
 type FunName = F.FunName
 type VarRef = F.VarRef

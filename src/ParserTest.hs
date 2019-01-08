@@ -5,29 +5,32 @@ import Test.Tasty.HUnit (Assertion,testCaseSteps,testCase,assertFailure,assertBo
 
 import Data.Either
 
+import ParserBin(toDNF)
 import ConvBin(pullEntries)
 import qualified Parser
 import qualified Trace
 import qualified Form
 import qualified NNF
 import qualified Skolem
+import qualified DNF
+import Lib
 
 tests = testGroup "ParserTest" [testCaseSteps "ParserTest" test]
 
+stats :: [Int] -> IO ()
+stats x = do
+  putStrLn ""
+  putStrLn $ "count = " ++ show (length x)
+  putStrLn $ "min = " ++ show (minimum x)
+  putStrLn $ "max = " ++ show (maximum x)
+  putStrLn $ "avg = " ++ show (fromIntegral (sum x) / fromIntegral (length x))
+
 test step = do
-  let testEntry (path,content) = do { step path; parseTest content }
-  pullEntries >>= mapM_ testEntry
+  let testEntry (path,content) = parseTest content
+  pullEntries >>= mapM testEntry >>= stats
 
-assert :: Either String a -> IO a
-assert (Left errMsg) = assertFailure errMsg
-assert (Right v) = return v
+parseTest :: String -> IO Int
+parseTest content = do
+  DNF.Form x <- toDNF content >>= assert
+  return (length x)
 
-parseTest :: String -> Assertion
-parseTest content = do 
-  resOrErr <- Trace.evalIO (Parser.parse content)
-  case resOrErr of
-    Left errStack -> assertFailure (show errStack)
-    Right res -> do
-      form <- assert $ Form.fromProto res
-      let skol = Skolem.skol (NNF.nnf form)
-      return ()
