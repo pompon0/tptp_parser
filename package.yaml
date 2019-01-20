@@ -30,6 +30,7 @@ dependencies:
 - text
 - containers
 - mtl
+- set-monad >= 0.3
 
 ghc-options: -Wincomplete-patterns -Werror -fbreak-on-error
 

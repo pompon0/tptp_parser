@@ -1,5 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleInstances #-}
 module Skolem where
 
 import Lib
@@ -18,8 +19,17 @@ data Form = And [Form]
   | PosAtom Pred
   | NegAtom Pred
   deriving(Eq)
-data Pred = PEq Term Term | PCustom PredName [Term] deriving(Eq)
-data Term = TVar VarName | TFun FunName [Term] deriving(Eq)
+data Pred = PEq Term Term | PCustom PredName [Term]
+data Term = TVar VarName | TFun FunName [Term] deriving(Eq,Ord)
+
+sort a b = if a<b then [a,b] else [b,a]
+conv (PEq a b) = (0,0,sort a b)
+conv (PCustom n a) = (1,n,a)
+
+instance Eq Pred where
+  (==) a b = conv a == conv b
+instance Ord Pred where
+  (<=) a b = conv a <= conv b
 
 instance Show Form where
   show (And x) = "and( " ++ sepList x ++ ")"
@@ -34,6 +44,22 @@ instance Show Pred where
 instance Show Term where
   show (TVar n) = "$" ++ show n
   show (TFun n x) = show n ++ "(" ++ sepList x ++ ")"
+
+class Subst s where
+  subst :: Monad m => (VarName -> m Term) -> s -> m s
+
+instance (Subst s, Traversable t) => Subst (t s) where
+  subst f x = mapM (subst f) x
+
+instance Subst Term where
+  subst f (TVar name) = f name
+  subst f (TFun name args) = subst f args >>= return . TFun name
+
+instance Subst Pred where
+  subst f (PEq l r) = do { (l',r') <- subst f (l,r); return (PEq l' r') }
+  subst f (PCustom name args) = subst f args >>= return . PCustom name
+
+--------------------------------------
 
 data State = State {
   _funNames :: Map.Map F.FunName FunName,
