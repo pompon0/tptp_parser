@@ -1,7 +1,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module LazyParam where
+module LazyParam(prove) where
 
+import qualified DNF
 import DNF(Term(..),Pred(..))
 import Skolem(Subst(..))
 import LPO(lpo)
@@ -14,6 +15,7 @@ import qualified Control.Monad.Trans.Except as ExceptM
 import Control.Monad.Trans.Class(lift)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
+import qualified Data.Set.Monad as SetM
 import Control.Lens (makeLenses, (^.), (%~), (.~), over, view, use, (.=), (%=))
 
 data Atom = PosAtom Pred | NegAtom Pred
@@ -84,6 +86,7 @@ pushAndCont cont a = branch %= (a:) >> cont
 expand :: M [()]
 expand = anyClause (allButOne (pushAndCont weak) (pushAndCont strong)) >>= return . join
 
+--------------------------------
 
 validateLT :: (Term,Term) -> M ()
 validateLT (l,r) = do
@@ -100,6 +103,8 @@ addLT :: (Term,Term) -> M ()
 addLT lr = do
   lift $ ineq %= Set.insert lr
   validateLT lr
+
+--------------------------------
 
 lazyEq :: [Term] -> [Term] -> M [()]
 lazyEq r s = do
@@ -198,6 +203,7 @@ weak :: M [()]
 weak = do
   BranchState path <- get
   anyM [
+    expand,
     -- S || \Gamma, s!~t
     case path of { NegAtom (PEq l r):_ -> addEQ (l,r) >> return []; _ -> throw },
     -- S || \Gamma L[p],\Delta,l~r
@@ -214,3 +220,25 @@ weak = do
       _ -> throw
     }]
 
+--------------------------------
+
+convCla :: DNF.Cla -> [Atom]
+convCla cla = (map PosAtom (SetM.toList $ DNF.pos cla)) ++ (map NegAtom (SetM.toList $  DNF.neg cla))
+
+neg :: Atom -> Atom
+neg (PosAtom p) = NegAtom p
+neg (NegAtom p) = PosAtom p
+
+prove :: DNF.Form -> Int -> Maybe Int
+prove form varsLimit =
+  let
+    -- negate the input form
+    clauses = map (map neg . convCla) (SetM.toList $ DNF.cla form)
+    initialState = TabState clauses 0 varsLimit Set.empty Map.empty
+    -- start with expand step
+    runBranch = StateM.runStateT expand (BranchState [])
+    runTab = StateM.runStateT runBranch initialState
+    runExcept = ExceptM.runExcept runTab
+  in case runExcept of
+    Left () -> Nothing
+    Right (_,s) -> Just (view varsUsed s)
