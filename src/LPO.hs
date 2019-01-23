@@ -1,32 +1,6 @@
 module LPO(lpo,Term(..)) where
 
---import Prelude hiding((<=))
 import Skolem(Term(..))
---import qualified Prelude
-
-{-
-class POrd a where
-  (<=) :: a -> a -> Bool
-
-instance POrd Int where
-  (<=) = (Prelude.<=)
-
-instance POrd a => POrd [a] where
-  [] <= _ = True
-  (x:_) <= [] = False
-  (x:xt) <= (y:yt) = x <= y && (not (y <= x) || xt <= yt)
-
-instance (POrd a, POrd b) => POrd (a,b) where
-  (xa,xb) <= (ya,yb) = xa <= ya && (not (ya <= xa) || xb <= yb)
-
--- s <= t
-instance POrd Term where
-  (TVar x) <= (TVar y) = x == y
-  (TVar x) <= (TFun f args) = any (TVar x <=) args
-  (TFun f args) <= (TVar x) = False
-  s@(TFun sf sargs) <= t@(TFun tf targs) =
-    any (t <=) sargs || (all (\a -> a <= s && a/=s) targs && (sf,sargs) <= (tf,targs))
--}
 
 -- (prove transitivity)
 --   induction on sum of term sizes
@@ -71,3 +45,4 @@ lpo s t = (s==t) || case (s,t) of
   -- forall valuations
   -- exists_{x\in sub(s)} x >= t
   -- -exists_{x\in sub(t)} x >= s && f:fargs >= g:gargs
+

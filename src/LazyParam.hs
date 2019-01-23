@@ -5,6 +5,7 @@ module LazyParam where
 import DNF(Term(..),Pred(..))
 import Skolem(Subst(..))
 import LPO(lpo)
+import qualified MGU(run,eval,State)
 import Control.Monad(mplus,mzero,MonadPlus,join)
 import Control.Monad.State.Class(MonadState,get,put)
 import qualified Control.Monad.Trans.Cont as ContM
@@ -24,7 +25,8 @@ instance Subst Atom where
 data TabState = TabState {
   _clauses :: [[Atom]],
   _varsUsed, _varsLimit :: Int,
-  _eq,_ineq :: Set.Set (Term,Term)
+  _ineq :: Set.Set (Term,Term),
+  _mguState :: MGU.State --_eq :: Set.Set (Term,Term)
 }
 makeLenses ''TabState
 
@@ -83,10 +85,21 @@ expand :: M [()]
 expand = anyClause (allButOne (pushAndCont weak) (pushAndCont strong)) >>= return . join
 
 
+validateLT :: (Term,Term) -> M ()
+validateLT (l,r) = do
+  s <- lift $ use mguState
+  if lpo (MGU.eval s r) (MGU.eval s l) then throw else return ()
+
 addEQ :: (Term,Term) -> M ()
-addEQ = error ""
+addEQ lr = do
+  s <- lift $ use mguState
+  case MGU.run lr s of { Nothing -> throw; Just s' -> lift $ mguState .= s' }
+  lrs <- lift $ use ineq
+  mapM_ validateLT lrs
 addLT :: (Term,Term) -> M ()
-addLT = error ""
+addLT lr = do
+  lift $ ineq %= Set.insert lr
+  validateLT lr
 
 lazyEq :: [Term] -> [Term] -> M [()]
 lazyEq r s = do
