@@ -19,7 +19,7 @@ ix 0 g (h:t) = fmap (\ma -> case ma of { Nothing -> (h:t); Just x -> (x:t)}) (g 
 ix i g (h:t) = fmap (\la -> h:la) (ix (i-1) g t)
 
 sepList :: Show a => [a] -> String
-sepList x = intercalate ", " (map show x)
+sepList x = intercalate "," (map show x)
 
 assert :: Either String a -> IO a
 assert (Left errMsg) = fail errMsg

@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module LazyParam(prove) where
+module LazyParam(prove,proveLoop) where
 
 import qualified DNF
 import DNF(Term(..),Pred(..))
@@ -20,13 +20,18 @@ import Control.Lens (makeLenses, (^.), (%~), (.~), over, view, use, (.=), (%=))
 
 data Atom = PosAtom Pred | NegAtom Pred
 
+instance Show Atom where
+  show (PosAtom p) = "+" ++ show p
+  show (NegAtom p) = "-" ++ show p
+
 instance Subst Atom where
   subst f (PosAtom p) = subst f p >>= return . PosAtom
   subst f (NegAtom p) = subst f p >>= return . NegAtom
 
 data TabState = TabState {
   _clauses :: [[Atom]],
-  _varsUsed, _varsLimit :: Int,
+  _varsUsed :: Int,
+  _nodesUsed, _nodesLimit :: Int,
   _ineq :: Set.Set (Term,Term),
   _mguState :: MGU.State --_eq :: Set.Set (Term,Term)
 }
@@ -59,10 +64,8 @@ allButOne all one (h:t) = anyM ([
 allocVar :: M Term
 allocVar = do
   vu <- lift $ use varsUsed
-  vl <- lift $ use varsLimit
-  if vu >= vl then throw else do
-    lift $ varsUsed %= (+1)
-    return (TVar vu)
+  lift $ varsUsed %= (+1)
+  return (TVar vu)
 
 type AllocM = StateM.StateT (Map.Map Int Term) M
 
@@ -74,7 +77,12 @@ allocM name = do
     Just t -> return t
 
 allocVars :: [Atom] -> M [Atom]
-allocVars atoms = StateM.evalStateT (subst allocM atoms) Map.empty
+allocVars atoms = do
+  nu <- lift $ use nodesUsed
+  nl <- lift $ use nodesLimit
+  if nu + length atoms > nl then throw else do
+    lift $ nodesUsed %= (+length atoms)
+    StateM.evalStateT (subst allocM atoms) Map.empty
 
 -- allocates fresh variables
 anyClause :: ([Atom] -> M a) -> M a
@@ -173,6 +181,8 @@ strong :: M [()]
 strong = do
   BranchState path <- get
   case path of
+    [] -> throw
+    [a] -> expand
     a:b:_ -> do
       case (a,b) of
         -- S || \Gamma,!P[r],P[s]
@@ -189,7 +199,6 @@ strong = do
         -- S || \Gamma, l~r, L[f(s)]
         (PosAtom (PEq l r), aLp) -> anyM [strongEqL (l,r) aLp, strongEqL (r,l) aLp]
         _ -> throw
-    _ -> throw
 
 weakLEq :: Atom -> (Term,Term) -> M [()]
 weakLEq aLp (l,r) = extract aLp (\aLw w p -> do {
@@ -229,16 +238,31 @@ neg :: Atom -> Atom
 neg (PosAtom p) = NegAtom p
 neg (NegAtom p) = PosAtom p
 
-prove :: DNF.Form -> Int -> Maybe Int
-prove form varsLimit =
-  let
+prove :: DNF.Form -> Int -> IO (Maybe Int)
+prove form nodesLimit = do
+  let {
     -- negate the input form
-    clauses = map (map neg . convCla) (SetM.toList $ DNF.cla form)
-    initialState = TabState clauses 0 varsLimit Set.empty Map.empty
+    clauses = map (map neg . convCla) (SetM.toList $ DNF.cla form);
+    initialState = TabState clauses 0 0 nodesLimit Set.empty Map.empty;
     -- start with expand step
-    runBranch = StateM.runStateT expand (BranchState [])
-    runTab = StateM.runStateT runBranch initialState
-    runExcept = ExceptM.runExcept runTab
-  in case runExcept of
-    Left () -> Nothing
-    Right (_,s) -> Just (view varsUsed s)
+    runBranch = StateM.runStateT expand (BranchState []);
+    runTab = StateM.runStateT runBranch initialState;
+    runExcept = ExceptM.runExcept runTab;
+  }
+  print clauses 
+  return $ case runExcept of
+      Left () -> Nothing
+      Right (_,s) -> Just (view varsUsed s)
+
+proveLoop :: DNF.Form -> Int -> IO ()
+proveLoop f limit = let
+  rec f i = do
+    res <- prove f i
+    case res of {
+      Nothing -> do {
+        print i;
+        if i<limit then rec f (i+1) else putStrLn "fail";
+      };
+      Just x -> putStrLn ("[" ++ show x ++ "]")
+    }
+  in rec f 0
