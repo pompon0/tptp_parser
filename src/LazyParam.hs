@@ -249,7 +249,7 @@ prove form nodesLimit = do
     runTab = StateM.runStateT runBranch initialState;
     runExcept = ExceptM.runExcept runTab;
   }
-  print clauses 
+  --print clauses 
   return $ case runExcept of
       Left () -> Nothing
       Right (_,s) -> Just (view varsUsed s)

@@ -32,8 +32,13 @@ dependencies:
 - mtl
 - set-monad >= 0.3
 - MissingH
+- threads
+- concurrent-extra
+- unbounded-delays
+- deepseq
+- split
 
-ghc-options: -Wincomplete-patterns -Werror -fbreak-on-error
+ghc-options: -O -Wincomplete-patterns -Werror -fbreak-on-error
 
 library:
   source-dirs: src
@@ -41,6 +46,7 @@ library:
     - TestBin
     - ConvBin
     - ParserBin
+    - ThreadBin
     - Proto.Tptp
 
 tests:
@@ -57,4 +63,9 @@ executables:
   conv:
     main: conv.hs
     source-dirs: bin
-    dependencies: tptp-parser 
+    dependencies: tptp-parser
+  thread:
+    ghc-options: -threaded -with-rtsopts=-N4
+    main: thread.hs
+    source-dirs: bin
+    dependencies: tptp-parser

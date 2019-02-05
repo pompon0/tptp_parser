@@ -6,7 +6,6 @@ import Lens.Micro((.~),(^.),(&))
 import Lens.Labels.Unwrapped ()
 import Data.Either
 import qualified System.Posix.Signals as Signals
-import qualified System.Exit as Exit
 import Control.Concurrent
 
 import Lib
@@ -18,6 +17,8 @@ import qualified Skolem
 import qualified DNF
 import qualified LazyParam
 import qualified Tableaux
+
+
 
 toDNF :: String -> IO (Either String DNF.Form)
 toDNF input = do
@@ -34,4 +35,7 @@ main = do
   print f
   ti <- myThreadId
   Signals.installHandler Signals.sigINT (Signals.Catch $ killThread ti) Nothing
-  LazyParam.proveLoop f 20
+  -- TODO run againts all the problems from the set with small timeout - try to find anything which we can solve with Taleaux or LazyParam 
+  -- TODO: add debugs to LazyParam to see where it gets stuck
+  -- TODO: test against simple problems from Harrison's book
+  Tableaux.proveLoop f 20
