@@ -54,21 +54,15 @@ killable cont = do
 --  loop :: Int -> Int
 --  loop i = loop i
 
-runInParallelWithTimeout :: Show a => Integer -> [IO a] -> IO [Thread.Result (Maybe a)]
+runInParallelWithTimeout :: Show a => Integer -> [(String,IO a)] -> IO [Thread.Result (Maybe a)]
 runInParallelWithTimeout time_per_task_us tasks = do
   let {
-    fork (i,t) = do {
+    fork (i,(n,t)) = do {
       (_,w) <- Thread.forkOn i $ Timeout.timeout time_per_task_us t;
-      return w;
+      return $ do { r <- w; putStrLn $ n ++ " = " ++ show r; hFlush stdout; return r };
     };
-    execChunk :: Show a => [(Int,IO a)] -> IO [Thread.Result (Maybe a)];
-    execChunk tasks = do {
-      res <- mapM fork tasks >>= sequence;
-      print $ zip (fst $ unzip tasks) res;
-      putStrLn "section clear";
-      hFlush stdout;
-      return res;
-    }
+    execChunk :: Show a => [(Int,(String,IO a))] -> IO [Thread.Result (Maybe a)];
+    execChunk tasks = mapM fork tasks >>= sequence;
   }
   cap <- Concurrent.getNumCapabilities
   resChunks :: [[Thread.Result (Maybe a)]] <- mapM execChunk (chunksOf cap $ zip [0..] tasks)

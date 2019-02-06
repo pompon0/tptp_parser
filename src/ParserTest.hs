@@ -6,7 +6,7 @@ import Test.Tasty.HUnit (Assertion,testCaseSteps,testCase,assertFailure,assertBo
 import Data.Either
 
 import ParserBin(toDNF)
-import ConvBin(pullEntries)
+import ConvBin(pullInteresting)
 import qualified Parser
 import qualified Trace
 import qualified Form
@@ -53,6 +53,6 @@ stats f = do
   putStrLn $ "avg(peq/pro) = " ++ show (frac peqTotal proTotal)
 
 test step = do
-  let testEntry (path,content) = toDNF content >>= assert
-  pullEntries >>= mapM testEntry >>= stats
+  let testEntry (path,tptpFile) = assert (toDNF tptpFile) :: IO DNF.Form
+  pullInteresting >>= mapM testEntry >>= stats
 

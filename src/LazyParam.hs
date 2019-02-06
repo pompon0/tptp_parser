@@ -77,12 +77,14 @@ allocM name = do
     Just t -> return t
 
 allocVars :: [Atom] -> M [Atom]
-allocVars atoms = do
+allocVars atoms = StateM.evalStateT (subst allocM atoms) Map.empty
+
+
+allocNode :: M ()
+allocNode = do
   nu <- lift $ use nodesUsed
   nl <- lift $ use nodesLimit
-  if nu + length atoms > nl then throw else do
-    lift $ nodesUsed %= (+length atoms)
-    StateM.evalStateT (subst allocM atoms) Map.empty
+  if nu >= nl then throw else lift $ nodesUsed %= (+1)
 
 -- allocates fresh variables
 anyClause :: ([Atom] -> M a) -> M a
@@ -179,6 +181,7 @@ strongEqL (l,r) aLp = extract aLp (\aLw w p -> case p of
 
 strong :: M [()]
 strong = do
+  allocNode
   BranchState path <- get
   case path of
     [] -> throw
@@ -210,6 +213,7 @@ weakLEq aLp (l,r) = extract aLp (\aLw w p -> do {
 
 weak :: M [()]
 weak = do
+  allocNode
   BranchState path <- get
   anyM [
     expand,
@@ -254,15 +258,15 @@ prove form nodesLimit = do
       Left () -> Nothing
       Right (_,s) -> Just (view varsUsed s)
 
-proveLoop :: DNF.Form -> Int -> IO ()
+proveLoop :: DNF.Form -> Int -> IO (Maybe Int)
 proveLoop f limit = let
   rec f i = do
     res <- prove f i
     case res of {
       Nothing -> do {
         print i;
-        if i<limit then rec f (i+1) else putStrLn "fail";
+        if i<limit then rec f (i+1) else putStrLn "fail" >> return Nothing
       };
-      Just x -> putStrLn ("[" ++ show x ++ "]")
+      Just x -> return (Just x)
     }
   in rec f 0

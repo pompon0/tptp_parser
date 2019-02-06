@@ -3,6 +3,7 @@
 module Form where
 
 import Prelude hiding(fail)
+import Control.Monad(join)
 import Control.Monad.Trans.Class(lift)
 import qualified Control.Monad.Identity as Identity
 import qualified Control.Monad.Trans.Except as Except
@@ -51,6 +52,18 @@ fromProto :: T.File -> Either String Form
 fromProto f = let
   (res,_) = StateM.runState (Except.runExceptT (_File'fromProto f)) (State Map.empty Map.empty [])
   in res
+
+---------------------------------------
+
+preds :: Form -> [Pred]
+preds f = case f of
+  Forall x -> preds x
+  Exists x -> preds x
+  Neg x -> preds x
+  And x -> join (map preds x)
+  Or x -> join (map preds x)
+  Xor x y -> preds x ++ preds y
+  Atom x -> [x]
 
 ---------------------------------------
 
