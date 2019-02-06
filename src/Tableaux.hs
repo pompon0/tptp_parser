@@ -6,6 +6,7 @@ module Tableaux(prove,proveLoop) where
 
 import Prelude hiding(pred)
 import Lib
+import Proof(Pred(..),Atom(..),AllocState,Clause(..),Proof)
 import qualified DNF
 import DNF(Term(..))
 import Skolem(Subst(..),PredName,FunName)
@@ -25,30 +26,14 @@ import Data.List.Utils (replace)
 import Data.List(sort,nub)
 import Control.Concurrent
 
-data Pred = Pred PredName [Term]
-data Atom = PosAtom Pred | NegAtom Pred
-
-instance Show Pred where
-  show (Pred n x) = show n ++ "(" ++ sepList x ++ ")"
- 
-instance Show Atom where
-  show (PosAtom p) = "+" ++ show p
-  show (NegAtom p) = "-" ++ show p
-
-instance Subst Pred where
-  subst f (Pred n x) = subst f x >>= return . Pred n
-
-instance Subst Atom where
-  subst f (PosAtom p) = subst f p >>= return . PosAtom
-  subst f (NegAtom p) = subst f p >>= return . NegAtom
-
 data TabState = TabState {
   _clauses :: [[Atom]],
   _varsUsed :: Int,
   -- we are limiting nodes, not vars, because it is possible to create an infinite branch of
   -- clauses without variables, see for example: (!p or !q) and (p or q)
   _nodesUsed, _nodesLimit :: Int,
-  _mguState :: MGU.State --_eq :: Set.Set (Term,Term)
+  _mguState :: MGU.State, --_eq :: Set.Set (Term,Term)
+  _usedClauses :: [Clause]
 }
 makeLenses ''TabState
 
@@ -59,6 +44,7 @@ data BranchState = BranchState {
 makeLenses ''BranchState
 
 type M = StateM.StateT BranchState (StateM.StateT TabState (ExceptM.ExceptT () IO))
+type AllocM = StateM.StateT AllocState M
 
 allM :: MonadState s m => [m a] -> m [a]
 allM tasks = do { s <- get; res <- mapM (put s >>) tasks; put s; return res }
@@ -93,8 +79,6 @@ allocVar = do
   lift $ varsUsed %= (+1)
   return (TVar vu)
 
-type AllocM = StateM.StateT (Map.Map Int Term) M
-
 allocM :: Int -> AllocM Term
 allocM name = do
   varMap <- get
@@ -104,11 +88,16 @@ allocM name = do
 
 allocVars :: [Atom] -> M [Atom]
 allocVars atoms = withCtx (show atoms) $ do
+  (atoms2,m) <- StateM.runStateT (subst allocM atoms) Map.empty
+  lift $ usedClauses %= (Clause atoms m:)
+  return atoms2 
+
+allocNode :: M ()
+allocNode = do
   nu <- lift $ use nodesUsed
   nl <- lift $ use nodesLimit
-  if nu + length atoms > nl then throw else do
-    lift $ nodesUsed %= (+length atoms)
-    StateM.evalStateT (subst allocM atoms) Map.empty
+  if nu >= nl then throw else lift $ nodesUsed %= (+1)
+
 
 -- allocates fresh variables
 anyClause :: ([Atom] -> M a) -> M a
@@ -138,6 +127,7 @@ showCtx = return ()
 
 strong :: M [()]
 strong = withCtx "strong" $ do
+  allocNode
   BranchState path _ <- get
   showCtx
   --lift $ lift $ lift $ print $ "strong " ++ show path
@@ -152,6 +142,7 @@ strong = withCtx "strong" $ do
 
 weak :: M [()]
 weak = withCtx "weak" $ do
+  allocNode
   BranchState path _ <- get
   anyM [
     case path of {
@@ -223,13 +214,15 @@ neg :: Atom -> Atom
 neg (PosAtom p) = NegAtom p
 neg (NegAtom p) = PosAtom p
 
+finalSubst :: MGU.State -> Clause -> Clause
+finalSubst mgus (Clause atoms as) = Clause atoms (Map.map (MGU.eval mgus) as)
 
-prove :: DNF.Form -> Int -> IO (Maybe Int)
+prove :: DNF.Form -> Int -> IO (Maybe Proof)
 prove form nodesLimit = do
   let {
     -- negate the input form
     clauses = convForm form;
-    initialState = TabState clauses 0 0 nodesLimit Map.empty;
+    initialState = TabState clauses 0 0 nodesLimit Map.empty [];
     -- start with expand step
     runBranch = StateM.runStateT expand (BranchState [] []);
     runTab = StateM.runStateT runBranch initialState;
@@ -238,18 +231,18 @@ prove form nodesLimit = do
   --print clauses
   res <- runExcept
   return $ case res of
-      Left () -> Nothing
-      Right (_,s) -> Just (view varsUsed s)
+    Left () -> Nothing
+    Right (_,s) -> Just $ map (finalSubst $ s^.mguState) (s^.usedClauses)
 
-proveLoop :: DNF.Form -> Int -> IO ()
+proveLoop :: DNF.Form -> Int -> IO (Maybe Proof)
 proveLoop f limit = let
   rec f i = do
     res <- prove f i
     case res of {
       Nothing -> do {
         print i;
-        if i<limit then rec f (i+1) else putStrLn "fail";
+        if i<limit then rec f (i+1) else putStrLn "fail" >> return Nothing
       };
-      Just x -> putStrLn ("[" ++ show x ++ "]")
+      Just x -> return (Just x)
     }
   in rec f 0

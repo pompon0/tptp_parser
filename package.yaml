@@ -48,6 +48,7 @@ library:
     - ParserBin
     - ThreadBin
     - Proto.Tptp
+    - Proto.Proof
 
 tests:
   test:

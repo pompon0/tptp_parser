@@ -9,7 +9,7 @@ import Lib
 import qualified DNF
 import ConvBin(pullInteresting)
 import ParserBin(toDNF)
-import LazyParam(proveLoop) 
+import Tableaux(proveLoop) 
 
 import Control.DeepSeq(NFData)
 import GHC.Generics(Generic)
