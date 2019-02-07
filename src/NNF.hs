@@ -1,14 +1,8 @@
-module NNF(nnf,
-  PredName,FunName,VarRef,
-  Form(..),F.Pred(..),F.Term(..)) where
+module NNF(nnf,Form(..),F.Pred(..),F.Term(..)) where
 
 import qualified Form as F
+import Form(Pred(..))
 import Lib
-
-
-type PredName = F.PredName
-type FunName = F.FunName
-type VarRef = F.VarRef
 
 data Form = Forall Form
   | Exists Form
@@ -17,7 +11,6 @@ data Form = Forall Form
   | PosAtom Pred
   | NegAtom Pred
   deriving(Eq)
-type Pred = F.Pred
 
 instance Show Form where
   show (Forall f) = "A " ++ show f

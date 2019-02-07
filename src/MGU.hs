@@ -1,12 +1,13 @@
 module MGU(run,eval,State) where
 
-import Skolem(Term(..),VarName)
+import Skolem(Term(..))
 import qualified Control.Monad.Trans.State.Lazy as StateM
 import qualified Control.Monad.Trans.Except as ExceptM
 import Control.Monad.State.Class(get,modify)
 import Control.Monad.Trans.Class(lift)
 import qualified Data.Map as Map
 
+import Lib
 
 type State = Map.Map VarName Term
 type M = StateM.StateT State (ExceptM.Except ())

@@ -9,7 +9,7 @@ import Lib
 import Proof(Pred(..),Atom(..),AllocState,Clause(..),Proof)
 import qualified DNF
 import DNF(Term(..))
-import Skolem(Subst(..),PredName,FunName)
+import Skolem(Subst(..))
 import LPO(lpo)
 import qualified MGU(run,eval,State)
 import Control.Monad(mplus,mzero,MonadPlus,join)
@@ -28,7 +28,7 @@ import Control.Concurrent
 
 data TabState = TabState {
   _clauses :: [[Atom]],
-  _varsUsed :: Int,
+  _nextVar :: VarName,
   -- we are limiting nodes, not vars, because it is possible to create an infinite branch of
   -- clauses without variables, see for example: (!p or !q) and (p or q)
   _nodesUsed, _nodesLimit :: Int,
@@ -75,11 +75,11 @@ allButOne all one (h:t) = anyM ([
 
 allocVar :: M Term
 allocVar = do
-  vu <- lift $ use varsUsed
-  lift $ varsUsed %= (+1)
+  vu <- lift $ use nextVar
+  lift $ nextVar %= (+1)
   return (TVar vu)
 
-allocM :: Int -> AllocM Term
+allocM :: VarName -> AllocM Term
 allocM name = do
   varMap <- get
   case Map.lookup name varMap of
@@ -193,18 +193,21 @@ convForm :: DNF.Form -> [[Atom]]
 convForm form = do
   let {
     clauses = map (map neg . convCla) (SetM.toList $ DNF.cla form);
-    eq l r = PosAtom (eqPred (TVar l) (TVar r));
-    neq l r = NegAtom (eqPred (TVar l) (TVar r));
+    eq l r = PosAtom (eqPred (TVar $ fromIntegral l) (TVar $ fromIntegral r));
+    neq l r = NegAtom (eqPred (TVar $ fromIntegral l) (TVar $ fromIntegral r));
     refl = [eq 0 0]; -- E $0!=$0
     symm = [eq 0 1, neq 1 0]; -- E E $0=$1 and $1!=$0
     trans = [eq 0 1, eq 1 2, neq 0 2]; -- EEE $0=$1 and $1=$2 and $0!=$2
+    congPred :: (PredName,Int) -> [[Atom]];
     congPred (n,c) = let { -- E 0..c  $0=$i and p($1..$i..$c) and !p($1..$c)
-      pred l = Pred n (map TVar l);
-      x = [1..c];
+      pred :: [Int] -> Pred;
+      pred l = Pred n (map (TVar . fromIntegral) l);
+      x :: [Int] = [1..c];
     } in map (\v -> [eq 0 v, PosAtom (pred x), NegAtom (pred $ replace [v] [0] x)]) x;
     congFun (n,c) = let { -- E 0..c  $0=$i and f($1..$i..$c)!=f($1..$c)
-      term l = TFun n (map TVar l);
-      x = [1..c];
+      term :: [Int] -> Term;
+      term l = TFun n (map (TVar . fromIntegral) l);
+      x :: [Int] = [1..c];
     } in map (\v -> [eq 0 v, NegAtom (eqPred (term x) (term $ replace [v] [0] x))]) x;
     congPredClauses :: [[Atom]] = join $ map congPred $ nub $ sort $ collectPredNames clauses;
     congFunClauses :: [[Atom]] = join $ map congFun $ nub $ sort $ collectFunNames clauses;

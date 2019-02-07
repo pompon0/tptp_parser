@@ -2,6 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module LazyParam(prove,proveLoop) where
 
+import Lib
 import qualified DNF
 import DNF(Term(..),Pred(..))
 import Skolem(Subst(..))
@@ -30,7 +31,7 @@ instance Subst Atom where
 
 data TabState = TabState {
   _clauses :: [[Atom]],
-  _varsUsed :: Int,
+  _nextVar :: VarName,
   _nodesUsed, _nodesLimit :: Int,
   _ineq :: Set.Set (Term,Term),
   _mguState :: MGU.State --_eq :: Set.Set (Term,Term)
@@ -63,13 +64,13 @@ allButOne all one (h:t) = anyM ([
 
 allocVar :: M Term
 allocVar = do
-  vu <- lift $ use varsUsed
-  lift $ varsUsed %= (+1)
+  vu <- lift $ use nextVar
+  lift $ nextVar %= (+1)
   return (TVar vu)
 
-type AllocM = StateM.StateT (Map.Map Int Term) M
+type AllocM = StateM.StateT (Map.Map VarName Term) M
 
-allocM :: Int -> AllocM Term
+allocM :: VarName -> AllocM Term
 allocM name = do
   varMap <- get
   case Map.lookup name varMap of
@@ -256,7 +257,7 @@ prove form nodesLimit = do
   --print clauses 
   return $ case runExcept of
       Left () -> Nothing
-      Right (_,s) -> Just (view varsUsed s)
+      Right (_,s) -> Just $ fromIntegral (view nextVar s)
 
 proveLoop :: DNF.Form -> Int -> IO (Maybe Int)
 proveLoop f limit = let

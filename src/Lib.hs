@@ -1,10 +1,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Lib where
 
 import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
 import Data.List(intercalate)
 import Data.List.Split(chunksOf)
+import Data.Ix(Ix)
 import Control.Monad(join)
 
 import System.IO(hFlush,stdout)
@@ -14,16 +16,20 @@ import qualified Control.Concurrent.Thread.Delay as Delay
 import qualified Control.Concurrent.Thread as Thread
 import qualified Control.Concurrent.Timeout as Timeout
 
-getUnique :: Ord a => a -> Map.Map a Int -> (Int,Map.Map a Int)
+newtype FunName = FunName Int deriving (Eq,Show,Num,Ord,Integral,Real,Enum)
+newtype PredName = PredName Int deriving(Eq,Show,Num,Ord,Integral,Real,Enum)
+newtype VarName = VarName Int deriving (Eq,Show,Num,Ord,Integral,Real,Enum)
+
+getUnique :: (Ord a, Num b) => a -> Map.Map a b -> (b,Map.Map a b)
 getUnique k m = case Map.lookup k m of
   Just i -> (i,m)
-  Nothing -> (Map.size m, Map.insert k (Map.size m) m)
+  Nothing -> let i = fromIntegral (Map.size m) in (i, Map.insert k i m)
 
 splitBy :: Ord k => (a -> k) -> [a] -> Map.Map k [a]
 splitBy f [] = Map.empty
 splitBy f (h:t) = Map.alter (\ml -> Just (h:(Maybe.fromMaybe [] ml))) (f h) (splitBy f t)
 
-ix :: Functor f => Int -> (Maybe a -> f (Maybe a)) -> ([a] -> f [a])
+ix :: (Functor f, Num b, Ix b) => b -> (Maybe a -> f (Maybe a)) -> ([a] -> f [a])
 ix i g [] = fmap (\_ -> []) (g Nothing)
 ix 0 g (h:t) = fmap (\ma -> case ma of { Nothing -> (h:t); Just x -> (x:t)}) (g (Just h))
 ix i g (h:t) = fmap (\la -> h:la) (ix (i-1) g t)

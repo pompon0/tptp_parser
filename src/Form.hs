@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Form where
 
 import Prelude hiding(fail)
@@ -13,13 +14,12 @@ import Lens.Micro((.~),(^.),(&))
 import Lens.Labels.Unwrapped ()
 import qualified Data.Text as Text
 import qualified Data.List as List
+import Data.Ix(Ix)
 
 import Lib
 import qualified Proto.Tptp as T
 
-type FunName = Int
-type PredName = Int
-type VarRef = Int
+newtype VarRef = VarRef Int deriving(Eq,Show,Num,Ord,Ix)
 
 data Form = Forall Form
   | Exists Form
@@ -100,11 +100,11 @@ lookupFunName name = do
   StateM.put $ s { funNames = fn }
   return i
 
-lookupTVar :: Text.Text -> M Int
+lookupTVar :: Text.Text -> M VarRef
 lookupTVar name = do
   s <- StateM.get
   case (List.elemIndex name (varStack s)) of
-    Just i -> return i
+    Just i -> return (fromIntegral i)
     Nothing -> fail ("variable " ++ show name ++ " not bound")
 
 _File'fromProto :: T.File -> M Form

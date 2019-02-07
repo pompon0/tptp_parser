@@ -1,7 +1,13 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
-module Skolem where
+module Skolem(
+  Form(..),
+  Pred(..),
+  Term(..),
+  Subst(..),
+  skol
+) where
 
 import Lib
 import qualified Control.Monad.State.Lazy as StateM
@@ -9,10 +15,6 @@ import Control.Lens (makeLenses, (^.), (%~), (.~), over, view, use, (.=), (%=))
 import qualified Data.Map as Map
 import qualified NNF as F
 import Data.List(intercalate)
-
-type PredName = F.PredName
-type FunName = Int
-type VarName = Int
 
 data Form = And [Form]
   | Or [Form]
@@ -62,7 +64,7 @@ instance Subst Pred where
 --------------------------------------
 
 data State = State {
-  _funNames :: Map.Map F.FunName FunName,
+  _funNames :: Map.Map FunName FunName,
   _varStack :: [Term],
   _nextVar :: VarName,
   _nextFunName :: FunName
@@ -75,7 +77,8 @@ empty = State Map.empty [] 0 0
 skol :: F.Form -> Form
 skol f = let (res,_) = StateM.runState (skolF f) empty in res
 
-lookupFunName :: F.PredName -> M FunName
+-- all the functions get renamed during skolemization
+lookupFunName :: FunName -> M FunName
 lookupFunName name = do
   fn <- use funNames
   case Map.lookup name fn of
