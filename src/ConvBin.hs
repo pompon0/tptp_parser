@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedLabels #-}
 module ConvBin(main,pullInteresting,readProtoTar,saveProtoTar) where
 
 import Lens.Micro((.~),(^.),(&))

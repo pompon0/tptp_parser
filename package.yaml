@@ -47,6 +47,7 @@ library:
     - ConvBin
     - ParserBin
     - ThreadBin
+    - CheckerBin
     - Proto.Tptp
     - Proto.Proof
 
@@ -68,5 +69,9 @@ executables:
   thread:
     ghc-options: -threaded -with-rtsopts=-N4
     main: thread.hs
+    source-dirs: bin
+    dependencies: tptp-parser
+  checker:
+    main: checker.hs
     source-dirs: bin
     dependencies: tptp-parser

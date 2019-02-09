@@ -9,6 +9,8 @@ import Data.ProtoLens(defMessage)
 import Lens.Micro((.~),(^.),(&))
 import Lens.Labels.Unwrapped ()
 
+import qualified Control.Monad.Trans.Except as ExceptM
+
 data Pred = Pred PredName [Term]
 data Atom = PosAtom Pred | NegAtom Pred
 
@@ -49,12 +51,39 @@ _Atom'toProto (NegAtom (Pred pn args)) = defMessage
   & #name .~ fromIntegral pn
   & #args .~ map _Term'toProto args
 
-_Subst'toProto :: AllocState -> P.Subst
-_Subst'toProto = error ""
+_Subst'toProto :: (VarName,Term) -> P.Subst
+_Subst'toProto (vn,t) = defMessage
+  & #varName .~ fromIntegral vn
+  & #term .~ _Term'toProto t
 
 _Clause'toProto :: Clause -> P.Clause
-_Clause'toProto = error ""
+_Clause'toProto (Clause atoms as) = defMessage
+  & #atom .~ map _Atom'toProto atoms
+  & #subst .~ map _Subst'toProto (Map.toList as)
 
-_Proof'toProto :: Proof -> P.Proof
-_Proof'toProto = error ""
+toProto :: Proof -> P.Proof
+toProto clauses = defMessage
+  & #clause .~ map _Clause'toProto clauses
+
+_Term'fromProto :: P.Term -> Term
+_Term'fromProto term = case term^. #type' of
+  P.Term'VAR -> TVar (fromIntegral $ term^. #name)
+  P.Term'EXP -> TFun (fromIntegral $ term^. #name) (map _Term'fromProto $ term^. #args)
+  _ -> error "unknown term type"
+
+_Atom'fromProto ::  P.Atom -> Atom
+_Atom'fromProto atom =
+  let pred = Pred (fromIntegral $ atom^. #name) (map _Term'fromProto $ atom^. #args)
+  in case atom^. #pos of { True -> PosAtom pred; False -> NegAtom pred }
+
+_Subst'fromProto :: P.Subst -> (VarName,Term)
+_Subst'fromProto sub = (fromIntegral (sub^. #varName), _Term'fromProto (sub^. #term))
+
+_Clause'fromProto :: P.Clause -> Clause
+_Clause'fromProto cla = Clause
+  (map _Atom'fromProto (cla^. #atom))
+  (Map.fromList $ map _Subst'fromProto (cla^. #subst))
+
+fromProto :: P.Proof -> Proof
+fromProto proof = map _Clause'fromProto (proof^. #clause)
 

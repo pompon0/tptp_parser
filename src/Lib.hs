@@ -9,16 +9,19 @@ import Data.List.Split(chunksOf)
 import Data.Ix(Ix)
 import Control.Monad(join)
 
-import System.IO(hFlush,stdout)
+import System.IO(hFlush,hPutStrLn,stdout,stderr)
 import qualified System.Posix.Signals as Signals
 import qualified Control.Concurrent as Concurrent
 import qualified Control.Concurrent.Thread.Delay as Delay
 import qualified Control.Concurrent.Thread as Thread
 import qualified Control.Concurrent.Timeout as Timeout
 
-newtype FunName = FunName Int deriving (Eq,Show,Num,Ord,Integral,Real,Enum)
-newtype PredName = PredName Int deriving(Eq,Show,Num,Ord,Integral,Real,Enum)
-newtype VarName = VarName Int deriving (Eq,Show,Num,Ord,Integral,Real,Enum)
+newtype FunName = FunName Int deriving (Eq,Num,Ord,Integral,Real,Enum)
+newtype PredName = PredName Int deriving(Eq,Num,Ord,Integral,Real,Enum)
+newtype VarName = VarName Int deriving (Eq,Num,Ord,Integral,Real,Enum)
+instance Show FunName where { show (FunName n) = "f" ++ show n }
+instance Show PredName where { show (PredName n) = "p" ++ show n }
+instance Show VarName where { show (VarName n) = "v" ++ show n }
 
 getUnique :: (Ord a, Num b) => a -> Map.Map a b -> (b,Map.Map a b)
 getUnique k m = case Map.lookup k m of
@@ -37,9 +40,19 @@ ix i g (h:t) = fmap (\la -> h:la) (ix (i-1) g t)
 sepList :: Show a => [a] -> String
 sepList x = intercalate "," (map show x)
 
-assert :: Either String a -> IO a
+assert :: Monad m => Either String a -> m a
 assert (Left errMsg) = fail errMsg
 assert (Right v) = return v
+
+assertMaybe :: Monad m => Maybe a -> m a
+assertMaybe Nothing = fail "Nothing"
+assertMaybe (Just v) = return v
+
+--------------------------------------
+
+putStrLnE = hPutStrLn stderr
+printE :: Show a => a -> IO ()
+printE x = putStrLnE (show x)
 
 --------------------------------------
 

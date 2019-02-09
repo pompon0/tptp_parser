@@ -1,12 +1,8 @@
-{-# LANGUAGE OverloadedLabels #-}
 module ParserBin(main,toDNF) where
 
 import qualified Data.ProtoLens.TextFormat as TextFormat
-import Lens.Micro((.~),(^.),(&))
-import Lens.Labels.Unwrapped ()
-import Data.Either
-import qualified Data.ProtoLens.TextFormat as TextFormat
 import qualified Data.Text.Lazy as Text
+import Data.Either
 
 import Lib
 import qualified Proto.Tptp as T
@@ -18,8 +14,7 @@ import qualified Skolem
 import qualified DNF
 import qualified LazyParam
 import qualified Tableaux
-
-
+import qualified Proof
 
 --TODO: move the quantifiers down, convert to CNF (treating quantified formulas as atoms),
 --  which will give you a decomposition into subproblems
@@ -32,4 +27,7 @@ main = do
   form <- assert $ toDNF tptpFile
   -- TODO: add debugs to LazyParam to see where it gets stuck
   -- TODO: test against simple problems from Harrison's book
-  killable $ Tableaux.proveLoop form 20
+  mProof <- killable $ Tableaux.proveLoop form 20
+  case mProof of
+    Nothing -> error "proof not found"
+    Just proof -> putStrLn (TextFormat.showMessage $ Proof.toProto proof)

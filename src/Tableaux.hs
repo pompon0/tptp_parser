@@ -2,17 +2,16 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
-module Tableaux(prove,proveLoop) where
+module Tableaux(prove,proveLoop,toDNF) where
 
 import Prelude hiding(pred)
 import Lib
 import Proof(Pred(..),Atom(..),AllocState,Clause(..),Proof)
 import qualified DNF
-import DNF(Term(..))
-import Skolem(Subst(..))
+import Skolem(Subst(..),Term(..))
 import LPO(lpo)
 import qualified MGU(run,eval,State)
-import Control.Monad(mplus,mzero,MonadPlus,join)
+import Control.Monad(mplus,mzero,MonadPlus,join,foldM)
 import Control.Monad.State.Class(MonadState,get,put)
 import qualified Control.Monad.Trans.Cont as ContM
 import qualified Control.Monad.Trans.State.Lazy as StateM
@@ -189,26 +188,27 @@ instance CollectFunNames Term where
   collectFunNames (TVar _) = []
   collectFunNames (TFun f x) = [(f,length x)]
 
+-- converts DNF form to prove into CNF form to refute
 convForm :: DNF.Form -> [[Atom]]
 convForm form = do
   let {
     clauses = map (map neg . convCla) (SetM.toList $ DNF.cla form);
     eq l r = PosAtom (eqPred (TVar $ fromIntegral l) (TVar $ fromIntegral r));
     neq l r = NegAtom (eqPred (TVar $ fromIntegral l) (TVar $ fromIntegral r));
-    refl = [eq 0 0]; -- E $0!=$0
-    symm = [eq 0 1, neq 1 0]; -- E E $0=$1 and $1!=$0
-    trans = [eq 0 1, eq 1 2, neq 0 2]; -- EEE $0=$1 and $1=$2 and $0!=$2
+    refl = [eq 0 0]; 
+    symm = [neq 0 1, eq 1 0]; 
+    trans = [neq 0 1, neq 1 2, eq 0 2]; 
     congPred :: (PredName,Int) -> [[Atom]];
-    congPred (n,c) = let { -- E 0..c  $0=$i and p($1..$i..$c) and !p($1..$c)
+    congPred (n,c) = let { -- A 0..c  $0=$i and p($1..$c) => p($1..$0..$c)
       pred :: [Int] -> Pred;
       pred l = Pred n (map (TVar . fromIntegral) l);
       x :: [Int] = [1..c];
-    } in map (\v -> [eq 0 v, PosAtom (pred x), NegAtom (pred $ replace [v] [0] x)]) x;
-    congFun (n,c) = let { -- E 0..c  $0=$i and f($1..$i..$c)!=f($1..$c)
+    } in map (\v -> [neq 0 v, NegAtom (pred x), PosAtom (pred $ replace [v] [0] x)]) x;
+    congFun (n,c) = let { -- A 0..c  $0=$i => f($1..$c)=f($1..$0..$c)
       term :: [Int] -> Term;
       term l = TFun n (map (TVar . fromIntegral) l);
       x :: [Int] = [1..c];
-    } in map (\v -> [eq 0 v, NegAtom (eqPred (term x) (term $ replace [v] [0] x))]) x;
+    } in map (\v -> [neq 0 v, PosAtom (eqPred (term x) (term $ replace [v] [0] x))]) x;
     congPredClauses :: [[Atom]] = join $ map congPred $ nub $ sort $ collectPredNames clauses;
     congFunClauses :: [[Atom]] = join $ map congFun $ nub $ sort $ collectFunNames clauses;
   } in [refl,symm,trans] ++ congPredClauses ++ congFunClauses ++ clauses
@@ -220,6 +220,26 @@ neg (NegAtom p) = PosAtom p
 finalSubst :: MGU.State -> Clause -> Clause
 finalSubst mgus (Clause atoms as) = Clause atoms (Map.map (MGU.eval mgus) as)
 
+toDNF'Pred (Pred n args) = case n of
+  0 -> case args of
+    [l,r] -> return (DNF.PEq l r)
+    _ -> Nothing
+  _ -> return (DNF.PCustom (n-1) args)
+
+toDNF'Clause (Clause atoms as) = do
+  let {
+    -- input is a CNF clause, so we need to negate it
+    append cla (PosAtom p) = do { p' <- toDNF'Pred p; return cla { DNF.neg = SetM.insert p' $ DNF.neg cla } };
+    append cla (NegAtom p) = do { p' <- toDNF'Pred p; return cla { DNF.pos = SetM.insert p' $ DNF.pos cla } };
+  }
+  subst (\vn -> Map.lookup vn as) atoms >>= foldM append (DNF.Cla SetM.empty SetM.empty)
+
+toDNF :: Proof -> Maybe DNF.Form
+toDNF proof = do
+  clauses <- mapM toDNF'Clause proof
+  return $ DNF.Form (SetM.fromList clauses)
+  
+-- returns a DNF of terminal clauses which implies input form (and is always true)
 prove :: DNF.Form -> Int -> IO (Maybe Proof)
 prove form nodesLimit = do
   let {
@@ -243,8 +263,8 @@ proveLoop f limit = let
     res <- prove f i
     case res of {
       Nothing -> do {
-        print i;
-        if i<limit then rec f (i+1) else putStrLn "fail" >> return Nothing
+        printE i;
+        if i<limit then rec f (i+1) else putStrLnE "fail" >> return Nothing
       };
       Just x -> return (Just x)
     }
