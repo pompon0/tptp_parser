@@ -9,6 +9,7 @@ import Data.List.Split(chunksOf)
 import Data.Ix(Ix)
 import Control.Monad(join)
 
+import Control.Monad.IO.Class(MonadIO,liftIO)
 import System.IO(hFlush,hPutStrLn,stdout,stderr)
 import qualified System.Posix.Signals as Signals
 import qualified Control.Concurrent as Concurrent
@@ -40,8 +41,8 @@ ix i g (h:t) = fmap (\la -> h:la) (ix (i-1) g t)
 sepList :: Show a => [a] -> String
 sepList x = intercalate "," (map show x)
 
-assert :: Monad m => Either String a -> m a
-assert (Left errMsg) = fail errMsg
+assert :: (Monad m, Show e) => Either e a -> m a
+assert (Left err) = fail (show err)
 assert (Right v) = return v
 
 assertMaybe :: Monad m => Maybe a -> m a
@@ -50,8 +51,9 @@ assertMaybe (Just v) = return v
 
 --------------------------------------
 
-putStrLnE = hPutStrLn stderr
-printE :: Show a => a -> IO ()
+putStrLnE :: MonadIO m => String -> m ()
+putStrLnE s = liftIO (hPutStrLn stderr s >> hFlush stderr)
+printE :: (MonadIO m, Show a) => a -> m ()
 printE x = putStrLnE (show x)
 
 --------------------------------------

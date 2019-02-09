@@ -25,6 +25,11 @@ import Data.List.Utils (replace)
 import Data.List(sort,nub)
 import Control.Concurrent
 
+data SearchState = SearchState {
+  _failCount :: Int
+}
+makeLenses ''SearchState
+
 data TabState = TabState {
   _clauses :: [[Atom]],
   _nextVar :: VarName,
@@ -42,7 +47,7 @@ data BranchState = BranchState {
 }
 makeLenses ''BranchState
 
-type M = StateM.StateT BranchState (StateM.StateT TabState (ExceptM.ExceptT () IO))
+type M = StateM.StateT BranchState (StateM.StateT TabState (ExceptM.ExceptT () (StateM.StateT SearchState IO)))
 type AllocM = StateM.StateT AllocState M
 
 allM :: MonadState s m => [m a] -> m [a]
@@ -62,7 +67,9 @@ anyM tasks = StateM.StateT (\branch -> StateM.StateT (\tab ->
 -}
 
 throw :: M a
-throw = lift $ lift $ ExceptM.throwE ()
+throw = do
+  lift $ lift $ lift $ failCount %= (+1)
+  lift $ lift $ ExceptM.throwE ()
 
 allButOne :: (a -> M b) -> (a -> M b) -> [a] -> M [b]
 allButOne all one [] = throw
@@ -109,10 +116,13 @@ pushAndCont :: M [()] -> Atom -> M [()]
 pushAndCont cont a = branch %= (a:) >> withCtx (show a) cont
 
 expand :: M [()]
-expand = anyClause (allButOne (pushAndCont weak) (pushAndCont strong)) >>= return . join
+expand = withCtx "expand" $ do
+  showCtx
+  anyClause (allButOne (pushAndCont weak) (pushAndCont strong)) >>= return . join
 
 addEQ :: (Term,Term) -> M ()
-addEQ lr = do
+addEQ lr = withCtx (show lr) $ do
+  showCtx
   s <- lift $ use mguState
   case MGU.run lr s of { Nothing -> throw; Just s' -> lift $ mguState .= s' }
 
@@ -122,7 +132,7 @@ addEQ lr = do
 
 showCtx :: M ()
 showCtx = return ()
---showCtx = use ctx >>= (lift . lift . lift . print)
+--showCtx = use ctx >>= printE
 
 strong :: M [()]
 strong = withCtx "strong" $ do
@@ -212,6 +222,7 @@ convForm form = do
     congPredClauses :: [[Atom]] = join $ map congPred $ nub $ sort $ collectPredNames clauses;
     congFunClauses :: [[Atom]] = join $ map congFun $ nub $ sort $ collectFunNames clauses;
   } in [refl,symm,trans] ++ congPredClauses ++ congFunClauses ++ clauses
+  --} in clauses
 
 neg :: Atom -> Atom
 neg (PosAtom p) = NegAtom p
@@ -240,7 +251,7 @@ toDNF proof = do
   return $ DNF.Form (SetM.fromList clauses)
   
 -- returns a DNF of terminal clauses which implies input form (and is always true)
-prove :: DNF.Form -> Int -> IO (Maybe Proof)
+prove :: DNF.Form -> Int -> IO (Maybe Proof, Int)
 prove form nodesLimit = do
   let {
     -- negate the input form
@@ -250,20 +261,21 @@ prove form nodesLimit = do
     runBranch = StateM.runStateT expand (BranchState [] []);
     runTab = StateM.runStateT runBranch initialState;
     runExcept = ExceptM.runExceptT runTab;
+    runSearch = StateM.runStateT runExcept (SearchState 0);
   }
   --print clauses
-  res <- runExcept
+  (res,searchState) <- runSearch
   return $ case res of
-    Left () -> Nothing
-    Right (_,s) -> Just $ map (finalSubst $ s^.mguState) (s^.usedClauses)
+    Left () -> (Nothing,_failCount searchState)
+    Right (_,s) -> (Just $ map (finalSubst $ s^.mguState) (s^.usedClauses), _failCount searchState)
 
 proveLoop :: DNF.Form -> Int -> IO (Maybe Proof)
 proveLoop f limit = let
   rec f i = do
-    res <- prove f i
+    (res,failCount) <- prove f i
     case res of {
       Nothing -> do {
-        printE i;
+        putStrLnE (show i ++ " -> " ++ show failCount);
         if i<limit then rec f (i+1) else putStrLnE "fail" >> return Nothing
       };
       Just x -> return (Just x)
