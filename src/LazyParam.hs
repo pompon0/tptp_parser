@@ -8,6 +8,9 @@ import DNF(Term(..),Pred(..))
 import Skolem(Subst(..))
 import LPO(lpo)
 import qualified MGU(run,eval,State)
+import qualified Proof
+import qualified Tableaux
+
 import Control.Monad(mplus,mzero,MonadPlus,join)
 import Control.Monad.State.Class(MonadState,get,put)
 import qualified Control.Monad.Trans.Cont as ContM
@@ -29,12 +32,18 @@ instance Subst Atom where
   subst f (PosAtom p) = subst f p >>= return . PosAtom
   subst f (NegAtom p) = subst f p >>= return . NegAtom
 
+data SearchState = SearchState {
+  _failCount :: Int
+}
+makeLenses ''SearchState
+
 data TabState = TabState {
   _clauses :: [[Atom]],
   _nextVar :: VarName,
   _nodesUsed, _nodesLimit :: Int,
   _ineq :: Set.Set (Term,Term),
-  _mguState :: MGU.State --_eq :: Set.Set (Term,Term)
+  _mguState :: MGU.State, --_eq :: Set.Set (Term,Term)
+  _usedClauses :: [Proof.Clause]
 }
 makeLenses ''TabState
 
@@ -43,7 +52,7 @@ data BranchState = BranchState {
 }
 makeLenses ''BranchState
 
-type M = StateM.StateT BranchState (StateM.StateT TabState (ExceptM.Except ()))
+type M = StateM.StateT BranchState (StateM.StateT TabState (ExceptM.ExceptT () (StateM.StateT SearchState IO)))
 
 allM :: MonadState s m => [m a] -> m [a]
 allM tasks = do { s <- get; res <- mapM (put s >>) tasks; put s; return res }
@@ -52,7 +61,9 @@ anyM :: MonadPlus m => [m a] -> m a
 anyM = foldl mplus mzero
 
 throw :: M a
-throw = lift $ lift $ ExceptM.throwE ()
+throw = do
+  lift $ lift $ lift $ failCount %= (+1)
+  lift $ lift $ ExceptM.throwE ()
 
 allButOne :: (a -> M b) -> (a -> M b) -> [a] -> M [b]
 allButOne all one [] = throw
@@ -78,8 +89,10 @@ allocM name = do
     Just t -> return t
 
 allocVars :: [Atom] -> M [Atom]
-allocVars atoms = StateM.evalStateT (subst allocM atoms) Map.empty
-
+allocVars atoms = do
+  (atoms2,m) <- StateM.runStateT (subst allocM atoms) Map.empty
+  lift $ usedClauses %= (toProofClause atoms m:)
+  return atoms2
 
 allocNode :: M ()
 allocNode = do
@@ -236,6 +249,17 @@ weak = do
 
 --------------------------------
 
+toProofPred :: Pred -> Proof.Pred
+toProofPred (PEq l r) = Proof.Pred Proof.eqPredName [l,r]
+toProofPred (PCustom pn args) = Proof.Pred (pn+1) args
+
+-- negating proof atoms, to revert initial negation of the problem
+toProofAtom (PosAtom p) = Proof.NegAtom (toProofPred p)
+toProofAtom (NegAtom p) = Proof.PosAtom (toProofPred p)
+
+toProofClause :: [Atom] -> Proof.AllocState -> Proof.Clause
+toProofClause atoms as = Proof.Clause (map toProofAtom atoms) as
+
 convCla :: DNF.Cla -> [Atom]
 convCla cla = (map PosAtom (SetM.toList $ DNF.pos cla)) ++ (map NegAtom (SetM.toList $  DNF.neg cla))
 
@@ -243,30 +267,32 @@ neg :: Atom -> Atom
 neg (PosAtom p) = NegAtom p
 neg (NegAtom p) = PosAtom p
 
-prove :: DNF.Form -> Int -> IO (Maybe Int)
+prove :: DNF.Form -> Int -> IO (Maybe Proof.Proof, Int)
 prove form nodesLimit = do
   let {
     -- negate the input form
     clauses = map (map neg . convCla) (SetM.toList $ DNF.cla form);
-    initialState = TabState clauses 0 0 nodesLimit Set.empty Map.empty;
+    initialState = TabState clauses 0 0 nodesLimit Set.empty Map.empty [];
     -- start with expand step
     runBranch = StateM.runStateT expand (BranchState []);
     runTab = StateM.runStateT runBranch initialState;
-    runExcept = ExceptM.runExcept runTab;
+    runExcept = ExceptM.runExceptT runTab;
+    runSearch = StateM.runStateT runExcept (SearchState 0);
   }
-  --print clauses 
-  return $ case runExcept of
-      Left () -> Nothing
-      Right (_,s) -> Just $ fromIntegral (view nextVar s)
+  --print clauses
+  (res,searchState) <- runSearch
+  return $ case res of
+      Left () -> (Nothing,_failCount searchState)
+      Right (_,s) -> (Just $ map (Tableaux.finalSubst $ s^.mguState) (s^.usedClauses), searchState^.failCount) 
 
-proveLoop :: DNF.Form -> Int -> IO (Maybe Int)
+proveLoop :: DNF.Form -> Int -> IO (Maybe Proof.Proof)
 proveLoop f limit = let
   rec f i = do
-    res <- prove f i
+    (res,failCount) <- prove f i
     case res of {
       Nothing -> do {
-        print i;
-        if i<limit then rec f (i+1) else putStrLn "fail" >> return Nothing
+        putStrLnE (show i ++ " -> " ++ show failCount);
+        if i<limit then rec f (i+1) else putStrLnE "fail" >> return Nothing
       };
       Just x -> return (Just x)
     }

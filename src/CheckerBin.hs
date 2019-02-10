@@ -10,7 +10,6 @@ import qualified Proto.Proof as PP
 import qualified Proto.Tptp as PT
 import qualified Proof
 import qualified Form
-import qualified Tableaux
 import ParserBin(toDNF)
 
 readProtoFile :: Message a => String -> IO a
@@ -21,6 +20,6 @@ main = do
   problemProto :: PT.File <- readProtoFile problemPath
   proofProto :: PP.Proof <- readProtoFile proofPath
   problem <- assert $ toDNF problemProto
-  proof <- assertMaybe $ Tableaux.toDNF (Proof.fromProto proofProto)
+  proof <- assertMaybe $ Proof.toDNF (Proof.fromProto proofProto)
   print problem
   print proof

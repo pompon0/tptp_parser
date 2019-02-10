@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
-module Tableaux(prove,proveLoop,toDNF) where
+module Tableaux(prove,proveLoop,finalSubst) where
 
 import Prelude hiding(pred)
 import Lib
@@ -95,7 +95,7 @@ allocM name = do
 allocVars :: [Atom] -> M [Atom]
 allocVars atoms = withCtx (show atoms) $ do
   (atoms2,m) <- StateM.runStateT (subst allocM atoms) Map.empty
-  lift $ usedClauses %= (Clause atoms m:)
+  lift $ usedClauses %= (Clause (map neg atoms) m:)
   return atoms2 
 
 allocNode :: M ()
@@ -231,24 +231,6 @@ neg (NegAtom p) = PosAtom p
 finalSubst :: MGU.State -> Clause -> Clause
 finalSubst mgus (Clause atoms as) = Clause atoms (Map.map (MGU.eval mgus) as)
 
-toDNF'Pred (Pred n args) = case n of
-  0 -> case args of
-    [l,r] -> return (DNF.PEq l r)
-    _ -> Nothing
-  _ -> return (DNF.PCustom (n-1) args)
-
-toDNF'Clause (Clause atoms as) = do
-  let {
-    -- input is a CNF clause, so we need to negate it
-    append cla (PosAtom p) = do { p' <- toDNF'Pred p; return cla { DNF.neg = SetM.insert p' $ DNF.neg cla } };
-    append cla (NegAtom p) = do { p' <- toDNF'Pred p; return cla { DNF.pos = SetM.insert p' $ DNF.pos cla } };
-  }
-  subst (\vn -> Map.lookup vn as) atoms >>= foldM append (DNF.Cla SetM.empty SetM.empty)
-
-toDNF :: Proof -> Maybe DNF.Form
-toDNF proof = do
-  clauses <- mapM toDNF'Clause proof
-  return $ DNF.Form (SetM.fromList clauses)
   
 -- returns a DNF of terminal clauses which implies input form (and is always true)
 prove :: DNF.Form -> Int -> IO (Maybe Proof, Int)

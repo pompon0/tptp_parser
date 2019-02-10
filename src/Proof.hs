@@ -3,11 +3,14 @@ module Proof where
 
 import Lib
 import Skolem(Term(..),Subst(..))
+import qualified DNF
 import qualified Proto.Proof as P
 import qualified Data.Map as Map
 import Data.ProtoLens(defMessage)
 import Lens.Micro((.~),(^.),(&))
 import Lens.Labels.Unwrapped ()
+import qualified Data.Set.Monad as SetM
+import Control.Monad(foldM)
 
 import qualified Control.Monad.Trans.Except as ExceptM
 
@@ -31,6 +34,31 @@ instance Subst Atom where
 type AllocState = Map.Map VarName Term
 data Clause = Clause [Atom] AllocState deriving(Show)
 type Proof = [Clause]
+
+-----------------------------------------------------
+
+eqPredName :: PredName
+eqPredName = 0
+
+toDNF'Pred (Pred n args) = case n of
+  0 -> case args of
+    [l,r] -> return (DNF.PEq l r)
+    _ -> Nothing
+  _ -> return (DNF.PCustom (n-1) args)
+
+toDNF'Clause (Clause atoms as) = do
+  let {
+    append cla (PosAtom p) = do { p' <- toDNF'Pred p; return cla { DNF.neg = SetM.insert p' $ DNF.pos cla } };
+    append cla (NegAtom p) = do { p' <- toDNF'Pred p; return cla { DNF.pos = SetM.insert p' $ DNF.neg cla } };
+  }
+  subst (\vn -> Map.lookup vn as) atoms >>= foldM append (DNF.Cla SetM.empty SetM.empty)
+
+toDNF :: Proof -> Maybe DNF.Form
+toDNF proof = do
+  clauses <- mapM toDNF'Clause proof
+  return $ DNF.Form (SetM.fromList clauses)
+
+-----------------------------------------------------
 
 _Term'toProto :: Term -> P.Term
 _Term'toProto (TVar vn) = defMessage
