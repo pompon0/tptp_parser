@@ -1,28 +1,29 @@
-module Valid(valid,Atom(..),Clause,Form) where
+module Valid(valid) where
 
 import Lib
+import DNF
+import Skolem
 import Prelude hiding(pred)
 import Control.Monad(join)
 import qualified Data.Set as Set
-
-data Atom = Atom { pos :: Bool, pred :: PredName } deriving(Eq)
-type Clause = [Atom]
-type Form = [Clause]
+import Control.Lens((&),(%~))
 
 neg :: Atom -> Atom
-neg a = a { pos = not (pos a) }
+neg a = a & atom'sign %~ not 
 
-setVal :: Atom -> Form -> Form
-setVal val form = map (filter (/= val)) $ filter (elem (neg val)) form
+setVal :: Atom -> OrForm -> OrForm
+setVal a f = f
+  & orForm'andClauses %~ filter (\c -> not (elem (neg a) $ c^.andClause'atoms))
+  & orForm'andClauses.traverse.andClause'atoms %~ filter (/=a)
 
-validRec :: [PredName] -> Form -> Bool
-validRec predNames form = case form of
+validRec :: [Pred] -> OrForm -> Bool
+validRec preds f@(OrForm clauses) = case clauses of
     [] -> False
-    _ | elem [] form -> True
-    _ -> case predNames of
+    _ | elem (AndClause []) clauses -> True
+    _ -> case preds of
       [] -> error ""
-      (h:t) -> (validRec t (setVal (Atom True h) form)) && (validRec t (setVal (Atom False h) form))
+      (h:t) -> (validRec t (setVal (Atom True h) f)) && (validRec t (setVal (Atom False h) f))
 
-valid :: Form -> Bool
-valid form = validRec (Set.toList $ Set.fromList $ map pred (join form)) form
+valid :: OrForm -> Bool
+valid f = validRec (unique $ f^..orForm'andClauses.traverse.andClause'atoms.traverse.atom'pred) f
 

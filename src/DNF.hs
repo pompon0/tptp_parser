@@ -6,7 +6,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 module DNF(
   dnf, simplify, isSubForm,
-  Atom(..), atom'sign, atom'pred,
+  Atom(..), atom'sign, atom'pred, atom'name, atom'args, opposite,
   OrForm(..), orForm'andClauses,
   AndClause(..), andClause'atoms,
   NotAndForm(..), notAndForm'orClauses,
@@ -16,8 +16,7 @@ module DNF(
 ) where
 
 import Prelude hiding(pred)
-import Skolem(Pred)
-import qualified Skolem
+import Skolem
 import Lib
 import qualified Data.List.Ordered as Ordered
 import Control.Lens(Traversal',Lens',filtered,makeLenses,(&),(%~))
@@ -27,6 +26,14 @@ data Atom = Atom { _atom'sign :: Bool, _atom'pred :: Pred } deriving(Eq,Ord)
 makeLenses ''Atom
 
 instance Show Atom where { show (Atom s p) = (if s then "+" else "-") ++ show p }
+
+atom'name :: Lens' Atom PredName
+atom'name = atom'pred.pred'spred.spred'name
+atom'args :: Lens' Atom [Term]
+atom'args = atom'pred.pred'spred.spred'args
+
+opposite :: Atom -> Atom -> Bool
+opposite a1 a2 = a1^.atom'sign /= a2^.atom'sign && a1^.atom'name == a2^.atom'name
 
 -- negated Conjunctive Normal Form
 newtype OrClause = OrClause { _orClause'atoms :: [Atom] } deriving(Show,Ord,Eq)

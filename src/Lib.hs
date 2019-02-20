@@ -15,6 +15,7 @@ import Data.Functor.Const(Const(..))
 import qualified Data.ProtoLens.TextFormat as TextFormat
 import Data.ProtoLens.Message(Message)
 import qualified Data.Text.Lazy as Text
+import qualified Data.Set as Set
 
 import Control.Monad.IO.Class(MonadIO,liftIO)
 import System.IO(hFlush,hPutStrLn,stdout,stderr)
@@ -30,6 +31,9 @@ newtype VarName = VarName Int deriving (Eq,Num,Ord,Integral,Real,Enum)
 instance Show FunName where { show (FunName n) = "f" ++ show n }
 instance Show PredName where { show (PredName n) = "p" ++ show n }
 instance Show VarName where { show (VarName n) = "v" ++ show n }
+
+unique :: Ord a => [a] -> [a]
+unique = Set.toAscList . Set.fromList
 
 getUnique :: (Ord a, Num b) => a -> Map.Map a b -> (b,Map.Map a b)
 getUnique k m = case Map.lookup k m of

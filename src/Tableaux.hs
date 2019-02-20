@@ -137,11 +137,6 @@ showCtx :: M ()
 showCtx = return ()
 --showCtx = use ctx >>= printE
 
-name = atom'pred.pred'spred.spred'name
-args = atom'pred.pred'spred.spred'args
-opposite :: Atom -> Atom -> Bool
-opposite a1 a2 = a1^.atom'sign /= a2^.atom'sign && a1^.name == a2^.name
-
 strong :: M [()]
 strong = withCtx "strong" $ do
   allocNode
@@ -151,7 +146,7 @@ strong = withCtx "strong" $ do
   case path of
     [a] -> expand
     a1:a2:_ -> if not (opposite a1 a2) then throw else
-        mapM addEQ (zip (a1^.args) (a2^.args)) >> return []
+        mapM addEQ (zip (a1^.atom'args) (a2^.atom'args)) >> return []
     [] -> throw
 
 weak :: M [()]
@@ -160,7 +155,7 @@ weak = withCtx "weak" $ do
   BranchState path _ <- get
   anyM [
     case path of {
-      a1:t -> anyM [mapM addEQ (zip (a1^.args) (a2^.args)) >> return [] | a2 <- t, opposite a1 a2];
+      a1:t -> anyM [mapM addEQ (zip (a1^.atom'args) (a2^.atom'args)) >> return [] | a2 <- t, opposite a1 a2];
       _ -> throw
     },
     expand]
