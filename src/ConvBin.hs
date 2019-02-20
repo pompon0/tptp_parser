@@ -22,7 +22,8 @@ import qualified Parser
 import qualified Trace
 import qualified Form
 
-inputFile = "http://cl-informatik.uibk.ac.at/cek/grzegorz/f.tgz"
+--inputFile = "http://cl-informatik.uibk.ac.at/cek/grzegorz/f.tgz"
+inputFile = "https://storage.googleapis.com/tptp/tptp_sample.tgz"
 outputFile = "/tmp/f.tgz"
 
 extractEntry :: Tar.Entry -> IO (String,String)

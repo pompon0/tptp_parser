@@ -1,36 +1,78 @@
-module DNF(dnf,simplify,Form(..),Cla(..),F.Pred(..),F.Term(..)) where
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+module DNF(
+  dnf, simplify, isSubForm,
+  Atom(..), atom'sign, atom'pred,
+  OrForm(..), orForm'andClauses,
+  AndClause(..), andClause'atoms,
+  NotAndForm(..), notAndForm'orClauses,
+  OrClause(..), orClause'atoms,
+  notOrClause, notAndClause,
+  toNotAndForm, toOrForm,
+) where
 
-import qualified Skolem as F
+import Prelude hiding(pred)
+import Skolem(Pred)
+import qualified Skolem
 import Lib
-import qualified Data.Set.Monad as Set
+import qualified Data.List.Ordered as Ordered
+import Control.Lens(Traversal',Lens',filtered,makeLenses,(&),(%~))
+import Data.List(intercalate)
 
-data Form = Form { cla :: Set.Set Cla }
-data Cla = Cla { pos,neg :: Set.Set Pred } deriving(Eq,Ord)
-type Pred = F.Pred
+data Atom = Atom { _atom'sign :: Bool, _atom'pred :: Pred } deriving(Eq,Ord)
+makeLenses ''Atom
 
-instance Show Form where
-  show (Form x) = unlines (map show $ Set.toList x)
-instance Show Cla where
-  show (Cla p n) = sepList (Set.toList n) ++ " => " ++ sepList (Set.toList p)
+instance Show Atom where { show (Atom s p) = (if s then "+" else "-") ++ show p }
 
-sumForm (Form x) (Form y) = Form (Set.union x y)
-prodForm (Form x) (Form y) = Form $ do
-  Cla px nx <- x
-  Cla py ny <- y
-  return $ Cla (Set.union px py) (Set.union nx ny)
+-- negated Conjunctive Normal Form
+newtype OrClause = OrClause { _orClause'atoms :: [Atom] } deriving(Show,Ord,Eq)
+makeLenses ''OrClause
+newtype NotAndForm = NotAndForm { _notAndForm'orClauses :: [OrClause] } deriving(Show,Ord,Eq,Semigroup,Monoid)
+makeLenses ''NotAndForm
 
-dnf :: F.Form -> Form
-dnf (F.PosAtom p) = Form $ Set.singleton $ Cla (Set.singleton p) Set.empty
-dnf (F.NegAtom p) = Form $ Set.singleton $ Cla Set.empty (Set.singleton p)
-dnf (F.Or x) = foldl sumForm (Form Set.empty) (map dnf x)
-dnf (F.And x) = foldl prodForm (Form $ Set.singleton $ Cla Set.empty Set.empty) (map dnf x)
+-- Disjunctive Normal Form
+newtype AndClause = AndClause { _andClause'atoms :: [Atom] } deriving(Ord,Eq)
+makeLenses ''AndClause
+newtype OrForm = OrForm { _orForm'andClauses :: [AndClause] } deriving(Ord,Eq)
+makeLenses ''OrForm
 
+toNotAndForm :: OrForm -> NotAndForm
+toNotAndForm (OrForm cla) = NotAndForm (map notAndClause cla)
 
-simplify :: Form -> Form
-simplify (Form x) =
+toOrForm :: NotAndForm -> OrForm
+toOrForm (NotAndForm cla) = OrForm (map notOrClause cla)
+
+notOrClause (OrClause atoms) = AndClause (atoms & traverse.atom'sign %~ not)
+notAndClause (AndClause atoms) = OrClause (atoms & traverse.atom'sign %~ not)
+
+filterSign :: Bool -> AndClause -> [Pred]
+filterSign s = toListOf (andClause'atoms.traverse.filtered (\a -> a^.atom'sign == s).atom'pred)
+
+instance Show OrForm where
+  show f = unlines $ map show $ f^.orForm'andClauses
+instance Show AndClause where
+  show c = intercalate " /\\ " $ map show (c^.andClause'atoms)
+
+sumOr (OrForm x) (OrForm y) = OrForm (Ordered.union x y)
+prodOr (OrForm fa) (OrForm fb) = OrForm $ Ordered.nubSort [AndClause (Ordered.union ca cb) | AndClause ca <- fa, AndClause cb <- fb]
+  
+dnf :: Skolem.Form -> OrForm
+dnf (Skolem.PosAtom p) = OrForm [AndClause [Atom True p]]
+dnf (Skolem.NegAtom p) = OrForm [AndClause [Atom False p]]
+dnf (Skolem.Or x) = foldl sumOr (OrForm []) (map dnf x)
+dnf (Skolem.And x) = foldl prodOr (OrForm [AndClause []]) (map dnf x)
+
+simplify :: OrForm -> OrForm
+simplify (OrForm x) =
   let
-    subClause (Cla px nx) (Cla py ny) = (Set.isSubsetOf px py) && (Set.isSubsetOf nx ny)
-    nonTrivial  = Set.filter (\(Cla p n) -> Set.null $ Set.intersection p n) x
-    notSubsumed = Set.filter (\c -> not $ any (\x -> x /= c && subClause x c) x) nonTrivial
-  in Form notSubsumed
+    subAnd (AndClause cx) (AndClause cy) = Ordered.subset cx cy
+    nonTrivial  = filter (\c -> [] == Ordered.isect (filterSign True c) (filterSign False c)) x
+    notSubsumed = filter (\c -> not $ any (\x -> x /= c && subAnd x c) x) nonTrivial
+  in OrForm notSubsumed
 
+isSubForm :: OrForm -> OrForm -> Bool
+isSubForm (OrForm a) (OrForm b) = Ordered.subset a b

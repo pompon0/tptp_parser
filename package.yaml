@@ -37,6 +37,7 @@ dependencies:
 - unbounded-delays
 - deepseq
 - split
+- data-ordlist
 
 ghc-options: -O -Wincomplete-patterns -Werror -fbreak-on-error
 

@@ -18,7 +18,7 @@ import qualified Proof
 
 --TODO: move the quantifiers down, convert to CNF (treating quantified formulas as atoms),
 --  which will give you a decomposition into subproblems
-toDNF :: T.File -> Either String DNF.Form
+toDNF :: T.File -> Either String DNF.OrForm
 toDNF tptpFile = fmap (DNF.simplify . DNF.dnf . Skolem.skol . NNF.nnf) (Form.fromProto tptpFile) 
 
 main = do

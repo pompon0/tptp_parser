@@ -10,7 +10,7 @@ import qualified Control.Monad.Identity as Identity
 import qualified Control.Monad.Trans.Except as Except
 import qualified Control.Monad.State.Lazy as StateM
 import qualified Data.Map as Map
-import Lens.Micro((.~),(^.),(&))
+import Lens.Micro((.~),(&))
 import Lens.Labels.Unwrapped ()
 import qualified Data.Text as Text
 import qualified Data.List as List

@@ -11,23 +11,23 @@ import qualified Parser
 import qualified Trace
 import qualified Form
 import qualified NNF
-import qualified Skolem
-import qualified DNF
+import Skolem
+import DNF
 import qualified Data.Set.Monad as Set
 import Lib
 
 tests = testGroup "ParserTest" [testCaseSteps "ParserTest" test]
 
-isPEq (DNF.PEq _ _) = True
+isPEq (PEq _ _) = True
 isPEq _ = False
 
 frac :: Int -> Int -> Double
 frac num den = fromIntegral num / fromIntegral den
 
-simpl :: DNF.Form -> [[DNF.Pred]]
-simpl (DNF.Form x) = [Set.toList p ++ Set.toList n | DNF.Cla p n <- Set.toList x]
+simpl :: OrForm -> [[Pred]]
+simpl x = map (^..andClause'atoms.traverse.atom'pred) (x^.orForm'andClauses) 
 
-stats :: [DNF.Form] -> IO ()
+stats :: [OrForm] -> IO ()
 stats f = do
   let c = map simpl f
   let x = map length c
@@ -53,6 +53,6 @@ stats f = do
   putStrLn $ "avg(peq/pro) = " ++ show (frac peqTotal proTotal)
 
 test step = do
-  let testEntry (path,tptpFile) = assert (toDNF tptpFile) :: IO DNF.Form
+  let testEntry (path,tptpFile) = assert (toDNF tptpFile) :: IO OrForm
   pullInteresting >>= mapM testEntry >>= stats
 

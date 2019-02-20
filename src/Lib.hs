@@ -9,6 +9,13 @@ import Data.List.Split(chunksOf)
 import Data.Ix(Ix)
 import Control.Monad(join)
 
+import Data.Monoid(Endo(..))
+import Data.Functor.Const(Const(..))
+
+import qualified Data.ProtoLens.TextFormat as TextFormat
+import Data.ProtoLens.Message(Message)
+import qualified Data.Text.Lazy as Text
+
 import Control.Monad.IO.Class(MonadIO,liftIO)
 import System.IO(hFlush,hPutStrLn,stdout,stderr)
 import qualified System.Posix.Signals as Signals
@@ -89,3 +96,20 @@ runInParallelWithTimeout time_per_task_us tasks = do
   resChunks :: [[Thread.Result (Maybe a)]] <- mapM execChunk (chunksOf cap $ zip [0..] tasks)
   return (join resChunks)
 
+--------------------------------------------
+
+readProtoFile :: Message a => String -> IO a
+readProtoFile path = readFile path >>= assert . TextFormat.readMessage . Text.pack 
+
+--------------------------------------------
+
+type Getting r s t a b = (a -> Const r b) -> (s -> Const r t)
+toListOf :: Getting [a] s t a b -> s -> [a]
+toListOf t = getConst . t (\a -> Const [a])
+
+(^..) :: s -> Getting [a] s t a b -> [a]
+(^..) = flip toListOf
+
+(^.) :: s -> Getting a s t a b -> a
+(^.) s g = getConst $ g (\a -> Const a) s
+infix 8 ^.,^..

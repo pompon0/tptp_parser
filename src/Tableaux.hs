@@ -6,9 +6,10 @@ module Tableaux(prove,proveLoop,finalSubst) where
 
 import Prelude hiding(pred)
 import Lib
-import Proof(Pred(..),Atom(..),AllocState,Clause(..),Proof)
-import qualified DNF
-import Skolem(Subst(..),Term(..))
+import Proof(Valuation,Clause(..),Proof)
+import DNF
+import qualified Skolem
+import Skolem(Term(..),Pred(..),SPred(..),term'subst,term'subterm,pred'spred,spred'args,spred'name)
 import LPO(lpo)
 import qualified MGU(run,eval,State)
 import Control.Monad(mplus,mzero,MonadPlus,join,foldM)
@@ -20,7 +21,7 @@ import Control.Monad.Trans.Class(lift)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import qualified Data.Set.Monad as SetM
-import Control.Lens (makeLenses, (^.), (%~), (.~), over, view, use, (.=), (%=))
+import Control.Lens(makeLenses, Fold, Traversal', (&), (%~), (.~), over, view, use, (.=), (%=))
 import Data.List.Utils (replace)
 import Data.List(sort,nub)
 import Control.Concurrent
@@ -31,7 +32,7 @@ data SearchState = SearchState {
 makeLenses ''SearchState
 
 data TabState = TabState {
-  _clauses :: [[Atom]],
+  _clauses :: NotAndForm,
   _nextVar :: VarName,
   -- we are limiting nodes, not vars, because it is possible to create an infinite branch of
   -- clauses without variables, see for example: (!p or !q) and (p or q)
@@ -48,7 +49,7 @@ data BranchState = BranchState {
 makeLenses ''BranchState
 
 type M = StateM.StateT BranchState (StateM.StateT TabState (ExceptM.ExceptT () (StateM.StateT SearchState IO)))
-type AllocM = StateM.StateT AllocState M
+type AllocM = StateM.StateT Valuation M
 
 allM :: MonadState s m => [m a] -> m [a]
 allM tasks = do { s <- get; res <- mapM (put s >>) tasks; put s; return res }
@@ -92,11 +93,13 @@ allocM name = do
     Nothing -> do { t <- lift $ allocVar; put (Map.insert name t varMap); return t }
     Just t -> return t
 
-allocVars :: [Atom] -> M [Atom]
-allocVars atoms = withCtx (show atoms) $ do
-  (atoms2,m) <- StateM.runStateT (subst allocM atoms) Map.empty
-  lift $ usedClauses %= (Clause (map neg atoms) m:)
-  return atoms2 
+orClause'subst = orClause'atoms.traverse.atom'pred.pred'spred.spred'args.traverse.term'subst
+
+allocVars :: OrClause -> M [Atom]
+allocVars cla = withCtx (show cla) $ do
+  (cla2,m) <- StateM.runStateT (orClause'subst allocM cla) Map.empty
+  lift $ usedClauses %= (Clause (notOrClause cla) m:)
+  return $ cla2^.orClause'atoms
 
 allocNode :: M ()
 allocNode = do
@@ -107,7 +110,7 @@ allocNode = do
 
 -- allocates fresh variables
 anyClause :: ([Atom] -> M a) -> M a
-anyClause cont = (lift $ use clauses) >>= anyM . map (\cla -> allocVars cla >>=  cont)
+anyClause cont = (lift $ use (clauses.notAndForm'orClauses)) >>= anyM . map (\cla -> allocVars cla >>= cont)
 
 withCtx :: String -> M a -> M a
 --withCtx msg cont = ctx %= (msg:) >> cont
@@ -134,6 +137,11 @@ showCtx :: M ()
 showCtx = return ()
 --showCtx = use ctx >>= printE
 
+name = atom'pred.pred'spred.spred'name
+args = atom'pred.pred'spred.spred'args
+opposite :: Atom -> Atom -> Bool
+opposite a1 a2 = a1^.atom'sign /= a2^.atom'sign && a1^.name == a2^.name
+
 strong :: M [()]
 strong = withCtx "strong" $ do
   allocNode
@@ -142,11 +150,8 @@ strong = withCtx "strong" $ do
   --lift $ lift $ lift $ print $ "strong " ++ show path
   case path of
     [a] -> expand
-    a:b:_ -> do
-      case (a,b) of
-        (NegAtom (Pred n1 r), PosAtom (Pred n2 s)) | n1 == n2 -> mapM addEQ (zip r s) >> return []
-        (PosAtom (Pred n1 r), NegAtom (Pred n2 s)) | n1 == n2 -> mapM addEQ (zip r s) >> return []
-        _ -> throw
+    a1:a2:_ -> if not (opposite a1 a2) then throw else
+        mapM addEQ (zip (a1^.args) (a2^.args)) >> return []
     [] -> throw
 
 weak :: M [()]
@@ -155,85 +160,57 @@ weak = withCtx "weak" $ do
   BranchState path _ <- get
   anyM [
     case path of {
-      NegAtom (Pred n1 s):t -> anyM [mapM addEQ (zip r s) >> return [] | PosAtom (Pred n2 r) <- t, n1 == n2];
-      PosAtom (Pred n1 s):t -> anyM [mapM addEQ (zip r s) >> return [] | NegAtom (Pred n2 r) <- t, n1 == n2];
+      a1:t -> anyM [mapM addEQ (zip (a1^.args) (a2^.args)) >> return [] | a2 <- t, opposite a1 a2];
       _ -> throw
     },
     expand]
 
 --------------------------------
 
-eqPred :: Term -> Term -> Pred
-eqPred l r = Pred 0 [l,r]
+notAndForm'pred :: Traversal' NotAndForm Pred
+notAndForm'pred = notAndForm'orClauses.traverse.orClause'atoms.traverse.atom'pred
+notAndForm'term :: Traversal' NotAndForm Term
+notAndForm'term = notAndForm'pred.pred'spred.spred'args.traverse
 
-convPred :: DNF.Pred -> Pred
-convPred p = case p of
-  DNF.PCustom n x -> Pred (n+1) x
-  DNF.PEq l r -> eqPred l r
+pred'arity :: Fold Pred (PredName,Int)
+pred'arity g p@(PCustom pn args) = g (pn,length args) *> pure p
+pred'arity g p = pure p
 
-convCla :: DNF.Cla -> [Atom]
-convCla cla = (map (PosAtom . convPred) (SetM.toList $ DNF.pos cla)) ++ (map (NegAtom . convPred) (SetM.toList $  DNF.neg cla))
+term'arity :: Fold Term (FunName,Int)
+term'arity g t@(TFun fn args) = g (fn,length args) *> pure t
+term'arity g t = pure t
 
-class CollectPredNames a where
-  collectPredNames :: a -> [(PredName,Int)]
-instance (CollectPredNames a) => CollectPredNames [a] where
-  collectPredNames l = join $ map collectPredNames l
-instance CollectPredNames Atom where
-  collectPredNames (PosAtom p) = collectPredNames p
-  collectPredNames (NegAtom p) = collectPredNames p
-instance CollectPredNames Pred where
-  collectPredNames (Pred 0 _) = []
-  collectPredNames (Pred n x) = [(n,length x)]
-
-class CollectFunNames a where
-  collectFunNames :: a -> [(FunName,Int)]
-instance (CollectFunNames a) => CollectFunNames [a] where
-  collectFunNames l = join $ map collectFunNames l
-instance CollectFunNames Atom where
-  collectFunNames (PosAtom p) = collectFunNames p
-  collectFunNames (NegAtom p) = collectFunNames p
-instance CollectFunNames Pred where
-  collectFunNames (Pred _ x) = collectFunNames x
-instance CollectFunNames Term where
-  collectFunNames (TVar _) = []
-  collectFunNames (TFun f x) = [(f,length x)]
-
--- converts DNF form to prove into CNF form to refute
-convForm :: DNF.Form -> [[Atom]]
+-- converts DNF form to prove, into CNF form to refute
+convForm :: OrForm -> NotAndForm
 convForm form = do
   let {
-    clauses = map (map neg . convCla) (SetM.toList $ DNF.cla form);
-    eq l r = PosAtom (eqPred (TVar $ fromIntegral l) (TVar $ fromIntegral r));
-    neq l r = NegAtom (eqPred (TVar $ fromIntegral l) (TVar $ fromIntegral r));
-    refl = [eq 0 0]; 
-    symm = [neq 0 1, eq 1 0]; 
-    trans = [neq 0 1, neq 1 2, eq 0 2]; 
-    congPred :: (PredName,Int) -> [[Atom]];
+    clauses = toNotAndForm form;
+    eq l r = Atom True (PEq (TVar $ fromIntegral l) (TVar $ fromIntegral r));
+    neq l r = Atom False (PEq (TVar $ fromIntegral l) (TVar $ fromIntegral r));
+    refl = OrClause [eq 0 0]; 
+    symm = OrClause [neq 0 1, eq 1 0]; 
+    trans = OrClause [neq 0 1, neq 1 2, eq 0 2]; 
+    congPred :: (PredName,Int) -> NotAndForm;
     congPred (n,c) = let { -- A 0..c  $0=$i and p($1..$c) => p($1..$0..$c)
       pred :: [Int] -> Pred;
-      pred l = Pred n (map (TVar . fromIntegral) l);
+      pred l = PCustom n (map (TVar . fromIntegral) l);
       x :: [Int] = [1..c];
-    } in map (\v -> [neq 0 v, NegAtom (pred x), PosAtom (pred $ replace [v] [0] x)]) x;
+    } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom False (pred x), Atom True (pred $ replace [v] [0] x)]) x;
+    congFun :: (FunName,Int) -> NotAndForm;
     congFun (n,c) = let { -- A 0..c  $0=$i => f($1..$c)=f($1..$0..$c)
       term :: [Int] -> Term;
       term l = TFun n (map (TVar . fromIntegral) l);
       x :: [Int] = [1..c];
-    } in map (\v -> [neq 0 v, PosAtom (eqPred (term x) (term $ replace [v] [0] x))]) x;
-    congPredClauses :: [[Atom]] = join $ map congPred $ nub $ sort $ collectPredNames clauses;
-    congFunClauses :: [[Atom]] = join $ map congFun $ nub $ sort $ collectFunNames clauses;
-  } in [refl,symm,trans] ++ congPredClauses ++ congFunClauses ++ clauses
-  --} in clauses
-
-neg :: Atom -> Atom
-neg (PosAtom p) = NegAtom p
-neg (NegAtom p) = PosAtom p
+    } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom True (PEq (term x) (term $ replace [v] [0] x))]) x;
+    congPredClauses :: NotAndForm = mconcat $ map congPred $ nub $ sort $ clauses^..notAndForm'pred.pred'arity;
+    congFunClauses :: NotAndForm = mconcat $ map congFun $ nub $ sort $ clauses^..notAndForm'term.term'subterm.term'arity;
+  } in NotAndForm [refl,symm,trans] <> congPredClauses <> congFunClauses <> clauses
 
 finalSubst :: MGU.State -> Clause -> Clause
 finalSubst mgus (Clause atoms as) = Clause atoms (Map.map (MGU.eval mgus) as)
 
-  
 -- returns a DNF of terminal clauses which implies input form (and is always true)
-prove :: DNF.Form -> Int -> IO (Maybe Proof, Int)
+prove :: OrForm -> Int -> IO (Maybe Proof, Int)
 prove form nodesLimit = do
   let {
     -- negate the input form
@@ -249,9 +226,9 @@ prove form nodesLimit = do
   (res,searchState) <- runSearch
   return $ case res of
     Left () -> (Nothing,_failCount searchState)
-    Right (_,s) -> (Just $ map (finalSubst $ s^.mguState) (s^.usedClauses), _failCount searchState)
+    Right (_,s) -> (Just $ map (finalSubst $ s^.mguState) (s^.usedClauses), searchState^.failCount)
 
-proveLoop :: DNF.Form -> Int -> IO (Maybe Proof)
+proveLoop :: OrForm -> Int -> IO (Maybe Proof)
 proveLoop f limit = let
   rec f i = do
     (res,failCount) <- prove f i

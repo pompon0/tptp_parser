@@ -1,62 +1,45 @@
 {-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Proof where
 
 import Lib
-import Skolem(Term(..),Subst(..))
-import qualified DNF
+import Skolem(Term(..),Pred(..),SPred(..),term'subst,pred'spred,spred'args,spred'name,makePred)
+import DNF
+import qualified Skolem
 import qualified Proto.Proof as P
 import qualified Data.Map as Map
 import Data.ProtoLens(defMessage)
-import Lens.Micro((.~),(^.),(&))
+import Lens.Micro((.~),(&),(%~))
 import Lens.Labels.Unwrapped ()
 import qualified Data.Set.Monad as SetM
 import Control.Monad(foldM)
+import Control.Lens(Traversal',Traversal,Lens',from)
+import Data.Monoid(Endo(..))
+import Data.Functor.Const(Const(..))
 
 import qualified Control.Monad.Trans.Except as ExceptM
 
-data Pred = Pred PredName [Term]
-data Atom = PosAtom Pred | NegAtom Pred
-
-instance Show Pred where
-  show (Pred n x) = show n ++ "(" ++ sepList x ++ ")"
- 
-instance Show Atom where
-  show (PosAtom p) = "+" ++ show p
-  show (NegAtom p) = "-" ++ show p
-
-instance Subst Pred where
-  subst f (Pred n x) = subst f x >>= return . Pred n
-
-instance Subst Atom where
-  subst f (PosAtom p) = subst f p >>= return . PosAtom
-  subst f (NegAtom p) = subst f p >>= return . NegAtom
-
-type AllocState = Map.Map VarName Term
-data Clause = Clause [Atom] AllocState deriving(Show)
+type Valuation = Map.Map VarName Term
+data Clause = Clause { cla :: AndClause, val :: Valuation } deriving(Show)
 type Proof = [Clause]
 
 -----------------------------------------------------
 
-eqPredName :: PredName
-eqPredName = 0
+val'lookup :: Valuation -> VarName -> Term
+val'lookup val vn = case Map.lookup vn val of { Just t -> t; Nothing -> TVar vn }
 
-toDNF'Pred (Pred n args) = case n of
-  0 -> case args of
-    [l,r] -> return (DNF.PEq l r)
-    _ -> Nothing
-  _ -> return (DNF.PCustom (n-1) args)
+andClause'subst :: Traversal AndClause AndClause VarName Term
+andClause'subst = andClause'atoms.traverse.atom'pred.pred'spred.spred'args.traverse.term'subst
 
-toDNF'Clause (Clause atoms as) = do
-  let {
-    append cla (PosAtom p) = do { p' <- toDNF'Pred p; return cla { DNF.neg = SetM.insert p' $ DNF.pos cla } };
-    append cla (NegAtom p) = do { p' <- toDNF'Pred p; return cla { DNF.pos = SetM.insert p' $ DNF.neg cla } };
-  }
-  subst (\vn -> Map.lookup vn as) atoms >>= foldM append (DNF.Cla SetM.empty SetM.empty)
+toDNF'Clause :: Clause -> AndClause
+toDNF'Clause (Clause c v) = c & andClause'subst %~ val'lookup v
 
-toDNF :: Proof -> Maybe DNF.Form
-toDNF proof = do
-  clauses <- mapM toDNF'Clause proof
-  return $ DNF.Form (SetM.fromList clauses)
+sourceClauses :: Proof -> OrForm
+sourceClauses proof = OrForm $ map (\(Proof.Clause c _) -> c) proof
+
+terminalClauses :: Proof -> OrForm
+terminalClauses proof = OrForm $ proof & traverse %~ toDNF'Clause
 
 -----------------------------------------------------
 
@@ -70,14 +53,10 @@ _Term'toProto (TFun fn args) = defMessage
   & #args .~ map _Term'toProto args
 
 _Atom'toProto :: Atom -> P.Atom
-_Atom'toProto (PosAtom (Pred pn args)) = defMessage
-  & #pos .~ True
-  & #name .~ fromIntegral pn
-  & #args .~ map _Term'toProto args
-_Atom'toProto (NegAtom (Pred pn args)) = defMessage
-  & #pos .~ False
-  & #name .~ fromIntegral pn
-  & #args .~ map _Term'toProto args
+_Atom'toProto atom = defMessage
+  & #sign .~ atom^.atom'sign
+  & #name .~ (fromIntegral $ atom^.atom'pred.pred'spred.spred'name)
+  & #args .~ map _Term'toProto (atom^.atom'pred.pred'spred.spred'args)
 
 _Subst'toProto :: (VarName,Term) -> P.Subst
 _Subst'toProto (vn,t) = defMessage
@@ -85,9 +64,9 @@ _Subst'toProto (vn,t) = defMessage
   & #term .~ _Term'toProto t
 
 _Clause'toProto :: Clause -> P.Clause
-_Clause'toProto (Clause atoms as) = defMessage
+_Clause'toProto (Clause (AndClause atoms) val) = defMessage
   & #atom .~ map _Atom'toProto atoms
-  & #subst .~ map _Subst'toProto (Map.toList as)
+  & #subst .~ map _Subst'toProto (Map.toList val)
 
 toProto :: Proof -> P.Proof
 toProto clauses = defMessage
@@ -101,15 +80,15 @@ _Term'fromProto term = case term^. #type' of
 
 _Atom'fromProto ::  P.Atom -> Atom
 _Atom'fromProto atom =
-  let pred = Pred (fromIntegral $ atom^. #name) (map _Term'fromProto $ atom^. #args)
-  in case atom^. #pos of { True -> PosAtom pred; False -> NegAtom pred }
+  let pred = SPred (fromIntegral $ atom^. #name) (map _Term'fromProto $ atom^. #args) ^. from pred'spred
+  in DNF.Atom (atom^. #sign) pred
 
 _Subst'fromProto :: P.Subst -> (VarName,Term)
 _Subst'fromProto sub = (fromIntegral (sub^. #varName), _Term'fromProto (sub^. #term))
 
 _Clause'fromProto :: P.Clause -> Clause
 _Clause'fromProto cla = Clause
-  (map _Atom'fromProto (cla^. #atom))
+  (AndClause $ map _Atom'fromProto (cla^. #atom))
   (Map.fromList $ map _Subst'fromProto (cla^. #subst))
 
 fromProto :: P.Proof -> Proof

@@ -3,9 +3,8 @@
 module LazyParam(prove,proveLoop) where
 
 import Lib
-import qualified DNF
-import DNF(Term(..),Pred(..))
-import Skolem(Subst(..))
+import DNF
+import Skolem
 import LPO(lpo)
 import qualified MGU(run,eval,State)
 import qualified Proof
@@ -20,17 +19,7 @@ import Control.Monad.Trans.Class(lift)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import qualified Data.Set.Monad as SetM
-import Control.Lens (makeLenses, (^.), (%~), (.~), over, view, use, (.=), (%=))
-
-data Atom = PosAtom Pred | NegAtom Pred
-
-instance Show Atom where
-  show (PosAtom p) = "+" ++ show p
-  show (NegAtom p) = "-" ++ show p
-
-instance Subst Atom where
-  subst f (PosAtom p) = subst f p >>= return . PosAtom
-  subst f (NegAtom p) = subst f p >>= return . NegAtom
+import Control.Lens (makeLenses, (%~), (.~), over, view, use, (.=), (%=))
 
 data SearchState = SearchState {
   _failCount :: Int
@@ -38,7 +27,7 @@ data SearchState = SearchState {
 makeLenses ''SearchState
 
 data TabState = TabState {
-  _clauses :: [[Atom]],
+  _clauses :: NotAndForm,
   _nextVar :: VarName,
   _nodesUsed, _nodesLimit :: Int,
   _ineq :: Set.Set (Term,Term),
@@ -88,11 +77,13 @@ allocM name = do
     Nothing -> do { t <- lift $ allocVar; put (Map.insert name t varMap); return t }
     Just t -> return t
 
-allocVars :: [Atom] -> M [Atom]
-allocVars atoms = do
-  (atoms2,m) <- StateM.runStateT (subst allocM atoms) Map.empty
-  lift $ usedClauses %= (toProofClause atoms m:)
-  return atoms2
+orClause'subst = orClause'atoms.traverse.atom'pred.pred'spred.spred'args.traverse.term'subst
+
+allocVars :: OrClause -> M [Atom]
+allocVars cla = do
+  (cla2,m) <- StateM.runStateT (orClause'subst allocM cla) Map.empty
+  lift $ usedClauses %= (Proof.Clause (notOrClause cla) m:)
+  return $ cla2^.orClause'atoms
 
 allocNode :: M ()
 allocNode = do
@@ -102,7 +93,7 @@ allocNode = do
 
 -- allocates fresh variables
 anyClause :: ([Atom] -> M a) -> M a
-anyClause cont = (lift $ use clauses) >>= anyM . map (\cla -> allocVars cla >>= cont)
+anyClause cont = (lift $ use (clauses.notAndForm'orClauses)) >>= anyM . map (\cla -> allocVars cla >>= cont)
 
 pushAndCont :: M [()] -> Atom -> M [()]
 pushAndCont cont a = branch %= (a:) >> cont
@@ -137,7 +128,7 @@ lazyEq r s = do
   mapM_ addEQ (zip v r)
   -- WARNING: zip will truncate the longer list if lengths mismatch
   -- TODO: throw an error instead
-  allM (map (\(s',v') -> pushAndCont weak (NegAtom (PEq s' v'))) (zip s v)) >>= return . join
+  allM (map (\(s',v') -> pushAndCont weak (Atom False (PEq s' v'))) (zip s v)) >>= return . join
 
 class Extract s where
   extract :: s -> (s -> Term{-Var-} -> Term{-p-} -> M [()]) -> M [()]
@@ -159,8 +150,7 @@ instance Extract Pred where
   extract (PCustom name args) cont = extract args (cont.PCustom name) 
 
 instance Extract Atom where
-  extract (PosAtom p) cont = extract p (cont.PosAtom)
-  extract (NegAtom p) cont = extract p (cont.NegAtom)
+  extract (DNF.Atom pos p) cont = extract p (cont . DNF.Atom pos)
 
 -- S || \Gamma, L[p], z~r
 -- S || \Gamma, L[p], f(s)~r
@@ -169,13 +159,13 @@ strongLEq aLp (l,r)= case l of
   z@(TVar _) -> extract aLp (\aLw w p -> do {
     addEQ (p,z);
     addLT (w,z);
-    allM (map (pushAndCont weak) [aLw, NegAtom (PEq r w)]) >>= return.join
+    allM (map (pushAndCont weak) [aLw, Atom False (PEq r w)]) >>= return.join
   })
   TFun f s -> extract aLp (\aLw w p -> do {
     v <- mapM (\_ -> allocVar) s;
     addEQ (p,TFun f v);
     addLT (w,TFun f v);
-    let { subtasks = aLw : map (\(x,y) -> NegAtom (PEq x y)) (zip (r:s) (w:v)) };
+    let { subtasks = aLw : map (\(x,y) -> Atom False (PEq x y)) (zip (r:s) (w:v)) };
     allM (map (pushAndCont weak) subtasks) >>= return.join
   })
 
@@ -187,7 +177,7 @@ strongEqL (l,r) aLp = extract aLp (\aLw w p -> case p of
     addEQ (TFun f v,l);
     addLT (r,l);
     addEQ (r,w);
-    let { subtasks = aLw : map (\(x,y) -> NegAtom (PEq x y)) (zip (r:s) (w:v)) };
+    let { subtasks = aLw : map (\(x,y) -> Atom False (PEq x y)) (zip (r:s) (w:v)) };
     allM (map (pushAndCont weak) subtasks) >>= return.join
   }
   _ -> throw)
@@ -204,17 +194,15 @@ strong = do
       case (a,b) of
         -- S || \Gamma,!P[r],P[s]
         -- S || \Gamma,P[r],!P[s]
-        (NegAtom (PCustom n1 r), PosAtom (PCustom n2 s)) | n1 == n2 -> lazyEq r s
-        (PosAtom (PCustom n1 r), NegAtom (PCustom n2 s)) | n1 == n2 -> lazyEq r s
+        (Atom x1 (PCustom n1 r), Atom x2 (PCustom n2 s)) | x1/=x2, n1 == n2 -> lazyEq r s
         -- not sure if non-paramodulation strong step for equality predicate is needed
         -- TODO: verify that against the proof
-        (NegAtom (PEq r1 r2), PosAtom (PEq s1 s2)) -> anyM [lazyEq [r1,r2] [s1,s2], lazyEq [r1,r2] [s2,s1]]
-        (PosAtom (PEq r1 r2), NegAtom (PEq s1 s2)) -> anyM [lazyEq [r1,r2] [s1,s2], lazyEq [r1,r2] [s2,s1]]
+        (Atom x1 (PEq r1 r2), Atom x2 (PEq s1 s2)) | x1/=x2 -> anyM [lazyEq [r1,r2] [s1,s2], lazyEq [r1,r2] [s2,s1]]
         -- S || \Gamma, L[p], z~r
         -- S || \Gamma, L[p], f(s)~r
-        (aLp, PosAtom (PEq l r)) -> anyM [strongLEq aLp (l,r), strongLEq aLp (r,l)]
+        (aLp, Atom True (PEq l r)) -> anyM [strongLEq aLp (l,r), strongLEq aLp (r,l)]
         -- S || \Gamma, l~r, L[f(s)]
-        (PosAtom (PEq l r), aLp) -> anyM [strongEqL (l,r) aLp, strongEqL (r,l) aLp]
+        (Atom True (PEq l r), aLp) -> anyM [strongEqL (l,r) aLp, strongEqL (r,l) aLp]
         _ -> throw
 
 weakLEq :: Atom -> (Term,Term) -> M [()]
@@ -232,46 +220,26 @@ weak = do
   anyM [
     expand,
     -- S || \Gamma, s!~t
-    case path of { NegAtom (PEq l r):_ -> addEQ (l,r) >> return []; _ -> throw },
+    case path of { DNF.Atom False (PEq l r):_ -> addEQ (l,r) >> return []; _ -> throw },
     -- S || \Gamma L[p],\Delta,l~r
-    case path of { (PosAtom (PEq l r):t) -> anyM [weakLEq aLp s | s <- [(l,r),(r,l)], aLp <- t]; _ -> throw },
+    case path of { (DNF.Atom True (PEq l r):t) -> anyM [weakLEq aLp s | s <- [(l,r),(r,l)], aLp <- t]; _ -> throw },
     -- S || \Gamma l~r,\Delta,L[p]
-    case path of { (aLp:t) -> anyM [weakLEq aLp (l,r) | PosAtom (PEq l r) <- t]; _ -> throw },
+    case path of { (aLp:t) -> anyM [weakLEq aLp (l,r) | DNF.Atom True (PEq l r) <- t]; _ -> throw },
     -- S || \Gamma,!P[r],\Delta,P[s]
     -- S || \Gamma,P[r],\Delta,!P[s]
     case path of {
-      NegAtom (PCustom n1 s):t -> anyM [mapM addEQ (zip r s) >> return [] | PosAtom (PCustom n2 r) <- t, n1 == n2];
-      PosAtom (PCustom n1 s):t -> anyM [mapM addEQ (zip r s) >> return [] | NegAtom (PCustom n2 r) <- t, n1 == n2];
-      NegAtom (PEq l r):t -> anyM [mapM addEQ (zip [l2,r2] s) | s <- [[l,r],[r,l]], PosAtom (PEq l2 r2) <- t];
-      PosAtom (PEq l r):t -> anyM [mapM addEQ (zip [l2,r2] s) | s <- [[l,r],[r,l]], NegAtom (PEq l2 r2) <- t];
+      DNF.Atom x1 (PCustom n1 s):t -> anyM [mapM addEQ (zip r s) >> return [] | DNF.Atom x2 (PCustom n2 r) <- t, x1/=x2, n1 == n2];
+      DNF.Atom x1 (PEq l r):t -> anyM [mapM addEQ (zip [l2,r2] s) | s <- [[l,r],[r,l]], DNF.Atom x2 (PEq l2 r2) <- t, x1/=x2];
       _ -> throw
     }]
 
 --------------------------------
 
-toProofPred :: Pred -> Proof.Pred
-toProofPred (PEq l r) = Proof.Pred Proof.eqPredName [l,r]
-toProofPred (PCustom pn args) = Proof.Pred (pn+1) args
-
--- negating proof atoms, to revert initial negation of the problem
-toProofAtom (PosAtom p) = Proof.NegAtom (toProofPred p)
-toProofAtom (NegAtom p) = Proof.PosAtom (toProofPred p)
-
-toProofClause :: [Atom] -> Proof.AllocState -> Proof.Clause
-toProofClause atoms as = Proof.Clause (map toProofAtom atoms) as
-
-convCla :: DNF.Cla -> [Atom]
-convCla cla = (map PosAtom (SetM.toList $ DNF.pos cla)) ++ (map NegAtom (SetM.toList $  DNF.neg cla))
-
-neg :: Atom -> Atom
-neg (PosAtom p) = NegAtom p
-neg (NegAtom p) = PosAtom p
-
-prove :: DNF.Form -> Int -> IO (Maybe Proof.Proof, Int)
+prove :: OrForm -> Int -> IO (Maybe Proof.Proof, Int)
 prove form nodesLimit = do
   let {
     -- negate the input form
-    clauses = map (map neg . convCla) (SetM.toList $ DNF.cla form);
+    clauses = toNotAndForm form;
     initialState = TabState clauses 0 0 nodesLimit Set.empty Map.empty [];
     -- start with expand step
     runBranch = StateM.runStateT expand (BranchState []);
@@ -285,7 +253,7 @@ prove form nodesLimit = do
       Left () -> (Nothing,_failCount searchState)
       Right (_,s) -> (Just $ map (Tableaux.finalSubst $ s^.mguState) (s^.usedClauses), searchState^.failCount) 
 
-proveLoop :: DNF.Form -> Int -> IO (Maybe Proof.Proof)
+proveLoop :: OrForm -> Int -> IO (Maybe Proof.Proof)
 proveLoop f limit = let
   rec f i = do
     (res,failCount) <- prove f i

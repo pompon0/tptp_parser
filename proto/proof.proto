@@ -9,7 +9,7 @@ message Term {
 }
 
 message Atom {
-  bool pos = 1;
+  bool sign = 1;
   int32 name = 2;
   repeated Term args = 3;
 }

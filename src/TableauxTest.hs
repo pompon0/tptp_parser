@@ -17,7 +17,7 @@ runTest tptpString = do
   tptpFile <- Trace.evalIO (Parser.parse tptpString) >>= assert
   form <- assert $ toDNF tptpFile
   --putStrLn ("\n=== BEGIN FORM ===\n" ++ show form ++ "\n=== END FORM ===\n")
-  proof <- Tableaux.proveLoop form 20 >>= assertMaybe >>= assertMaybe . Proof.toDNF
+  proof <- Tableaux.proveLoop form 20 >>= assertMaybe >>= return . Proof.terminalClauses
   print proof
 
 
