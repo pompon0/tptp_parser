@@ -1,10 +1,10 @@
 module TptpSampleData where
 
 problems = [
-  ("simple",simple),
-  ("barber",barber),
-  ("pelletier20",pelletier20),
-  ("pelletier24",pelletier24)]
+  --("simple",simple),
+  ("barber",barber)]
+  --("pelletier20",pelletier20),
+  --("pelletier24",pelletier24)]
 
 simple = "fof(simple, conjecture, (?[X]:(![Y]: (p(X) => p(Y)))))."
 

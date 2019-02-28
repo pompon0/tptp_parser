@@ -1,6 +1,6 @@
-module LPO(lpo,Term(..)) where
+module LPO(lpo) where
 
-import Skolem(Term(..))
+import Pred
 
 -- (prove transitivity)
 --   induction on sum of term sizes

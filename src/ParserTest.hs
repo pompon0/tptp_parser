@@ -11,7 +11,7 @@ import qualified Parser
 import qualified Trace
 import qualified Form
 import qualified NNF
-import Skolem
+import Pred
 import DNF
 import qualified Data.Set.Monad as Set
 import Lib

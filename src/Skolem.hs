@@ -1,17 +1,10 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
-module Skolem(
-  Form(..),
-  Pred(..),
-  Term(..),
-  skol,
-  term'subst,
-  term'subterm,
-  SPred(..),pred'spred,spred'name,spred'args,makePred
-) where
+module Skolem(Form(..), skol) where
 
 import Lib
+import Pred
 import qualified Control.Monad.State.Lazy as StateM
 import Control.Lens (makeLenses, (^.), (%~), (.~), over, view, use, (.=), (%=))
 import qualified Data.Map as Map
@@ -21,62 +14,17 @@ import qualified Data.Set.Monad as Set
 import Control.Monad(join)
 import Control.Lens(makeLenses,Traversal,Traversal',Fold,Lens,Lens',Iso',dimap)
 
-data Term = TVar VarName | TFun FunName [Term] deriving(Eq,Ord)
-data Pred = PEq Term Term | PCustom PredName [Term]
-
-sort a b = if a<b then [a,b] else [b,a]
-conv (PEq a b) = (0,0,sort a b)
-conv (PCustom n a) = (1,n,a)
-
-instance Eq Pred where
-  (==) a b = conv a == conv b
-instance Ord Pred where
-  (<=) a b = conv a <= conv b
-
 data Form = And [Form]
   | Or [Form]
   | PosAtom Pred
   | NegAtom Pred
   deriving(Eq)
 
-term'subst :: Traversal Term Term VarName Term
-term'subst g (TVar vn) = g vn
-term'subst g (TFun fn args) = pure (TFun fn) <*> (traverse.term'subst) g args
-
-term'subterm :: Fold Term Term
-term'subterm g t@(TFun fn args) = (traverse.term'subterm) g args *> g t *> pure t
-term'subterm g t = g t *> pure t
-
-data SPred = SPred { _spred'name :: PredName, _spred'args :: [Term] }
-makeLenses ''SPred
-
-eqPredName = -1
-
-makeSPred :: Pred -> SPred
-makeSPred (PEq l r) = SPred eqPredName [l,r]
-makeSPred (PCustom pn args) = SPred pn args
-
-makePred :: SPred -> Pred
-makePred (SPred pn args) = case args of
-  [l,r] | pn == eqPredName -> PEq l r
-  _ -> PCustom pn args 
-
-pred'spred :: Iso' Pred SPred
-pred'spred = dimap makeSPred (fmap makePred)
-
 instance Show Form where
   show (And x) = "and( " ++ sepList x ++ ")"
   show (Or x) = "or(" ++ sepList x ++ ")"
   show (PosAtom p) = show p
   show (NegAtom n) = "-" ++ show n
-
-instance Show Pred where
-  show (PEq l r) = "eq(" ++ sepList [l,r] ++ ")"
-  show (PCustom n x) = show n ++ "(" ++ sepList x ++ ")"
-
-instance Show Term where
-  show (TVar n) = show n
-  show (TFun n x) = show n ++ "(" ++ sepList x ++ ")"
 
 --------------------------------------
 

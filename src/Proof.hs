@@ -4,9 +4,8 @@
 module Proof where
 
 import Lib
-import Skolem(Term(..),Pred(..),SPred(..),term'subst,pred'spred,spred'args,spred'name,makePred)
 import DNF
-import qualified Skolem
+import Pred
 import qualified Proto.Proof as P
 import qualified Data.Map as Map
 import Data.ProtoLens(defMessage)
@@ -14,14 +13,15 @@ import Lens.Micro((.~),(&),(%~))
 import Lens.Labels.Unwrapped ()
 import qualified Data.Set.Monad as SetM
 import Control.Monad(foldM)
-import Control.Lens(Traversal',Traversal,Lens',from)
+import Control.Lens(makeLenses,Traversal',Traversal,Lens',from)
 import Data.Monoid(Endo(..))
 import Data.Functor.Const(Const(..))
+import Valid(counterExample)
 
 import qualified Control.Monad.Trans.Except as ExceptM
 
-type Valuation = Map.Map VarName Term
-data Clause = Clause { cla :: AndClause, val :: Valuation } deriving(Show)
+data Clause = Clause { _clause'andClause :: AndClause, _clause'val :: Valuation } deriving(Show)
+makeLenses ''Clause
 type Proof = [Clause]
 
 -----------------------------------------------------
@@ -40,6 +40,15 @@ sourceClauses proof = OrForm $ map (\(Proof.Clause c _) -> c) proof
 
 terminalClauses :: Proof -> OrForm
 terminalClauses proof = OrForm $ proof & traverse %~ toDNF'Clause
+
+-----------------------------------------------------
+
+check :: Monad m => DNF.OrForm -> Proof -> m ()
+check problem proof = if not (DNF.isSubForm (sourceClauses proof) (DNF.appendEqAxioms problem))
+  then fail "proof doesn't imply the formula"
+  else case counterExample (terminalClauses proof) of
+    Nothing -> return ()
+    Just e -> fail (show e)
 
 -----------------------------------------------------
 

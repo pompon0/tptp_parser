@@ -12,7 +12,7 @@ import qualified Proof
 import qualified Form
 import qualified ParserBin
 import qualified DNF
-import Valid(valid)
+import Valid(counterExample)
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -24,8 +24,15 @@ check problemProto proofProto = do
   let proof :: Proof.Proof = Proof.fromProto proofProto
   let sourceClauses = Proof.sourceClauses proof 
   let terminalClauses = Proof.terminalClauses proof
+  putStrLn ("problem = " ++ show problem)
+  putStrLn ("sourceClauses = " ++ show sourceClauses)
+  putStrLn ("terminalClauses = " ++ show terminalClauses)
   if not (DNF.isSubForm sourceClauses problem) then return False else do {
-    return (valid terminalClauses)
+    case counterExample terminalClauses of
+      Nothing -> return True
+      Just e -> do
+        putStrLn("counter example: " ++ show e)
+        return False
   }
 
 

@@ -1,6 +1,6 @@
-module MGU(run,eval,State,emptyState) where
+module MGU(runMGU) where
 
-import Skolem(Term(..))
+import Pred
 import qualified Control.Monad.Trans.State.Lazy as StateM
 import qualified Control.Monad.Trans.Except as ExceptM
 import Control.Monad.State.Class(get,modify)
@@ -10,15 +10,11 @@ import Debug.Trace
 
 import Lib
 
-type State = Map.Map VarName Term
-type M = StateM.StateT State (ExceptM.Except ())
-
-emptyState = Map.empty
+type M = StateM.StateT Valuation (ExceptM.Except ())
 
 throw :: M a
 throw = lift $ ExceptM.throwE ()
 
--- state is a function V-FV -> T[FV], represented by acyclic V-FV -> T[V] function
 -- TODO: early exit in case of identical terms (compared by hash)
 -- Note that if you assign hashes to free variables and maintain the hashes for (V-FV)
 -- (i.e. updating them on assign), mgu will process only the branches which actually end with a nontrivial assignment.
@@ -42,14 +38,10 @@ assign xn t = do
     _ -> if has t then throw else modify (Map.insert xn t);
   }
 
-run :: (Term,Term) -> State -> Maybe State
-run lr s = case ExceptM.runExcept (StateM.runStateT (mgu lr) s) of
+runMGU :: (Term,Term) -> Valuation -> Maybe Valuation
+runMGU lr s = case ExceptM.runExcept (StateM.runStateT (mgu lr) s) of
   Left _ -> Nothing
   Right (_,s) -> Just s
-
-eval :: State -> Term -> Term
-eval s t@(TVar vn) = case Map.lookup vn s of { Nothing -> t; Just t' -> eval s t' }
-eval s (TFun f args) = TFun f (map (eval s) args)
 
 mgu :: (Term,Term) -> M ()
 mgu (x,y) = case (x,y) of

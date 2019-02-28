@@ -2,16 +2,16 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
-module Tableaux(prove,proveLoop,finalSubst) where
+module Tableaux(prove,proveLoop) where
 
 import Prelude hiding(pred)
 import Lib
-import Proof(Valuation,Clause(..),Proof)
+import Proof(Clause(..),Proof,clause'val)
 import DNF
+import Pred
 import qualified Skolem
-import Skolem(Term(..),Pred(..),SPred(..),term'subst,term'subterm,pred'spred,spred'args,spred'name)
 import LPO(lpo)
-import qualified MGU(run,eval,State)
+import qualified MGU
 import Control.Monad(mplus,mzero,MonadPlus,join,foldM)
 import Control.Monad.State.Class(MonadState,get,put)
 import qualified Control.Monad.Trans.Cont as ContM
@@ -21,10 +21,22 @@ import Control.Monad.Trans.Class(lift)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import qualified Data.Set.Monad as SetM
-import Control.Lens(makeLenses, Fold, Traversal', (&), (%~), (.~), over, view, use, (.=), (%=))
+import Control.Lens(makeLenses, Fold, Traversal, Traversal', (&), (%~), (.~), over, view, use, (.=), (%=))
 import Data.List.Utils (replace)
 import Data.List(sort,nub)
 import Control.Concurrent
+
+data ProofTree = Strong | Weak | Expand [ProofTree] | Node Atom ProofTree
+
+indent s = "  " ++ s
+
+showTree :: ProofTree -> [String]
+showTree Strong = ["Strong"]
+showTree Weak = ["Weak"]
+showTree (Node a t) = show a : map indent (showTree t)
+showTree (Expand t) = join (map showTree t)
+
+instance Show ProofTree where { show t = unlines (showTree t) }
 
 data SearchState = SearchState {
   _failCount :: Int
@@ -37,7 +49,7 @@ data TabState = TabState {
   -- we are limiting nodes, not vars, because it is possible to create an infinite branch of
   -- clauses without variables, see for example: (!p or !q) and (p or q)
   _nodesUsed, _nodesLimit :: Int,
-  _mguState :: MGU.State, --_eq :: Set.Set (Term,Term)
+  _mguState :: Valuation, --_eq :: Set.Set (Term,Term)
   _usedClauses :: [Clause]
 }
 makeLenses ''TabState
@@ -115,19 +127,19 @@ anyClause cont = (lift $ use (clauses.notAndForm'orClauses)) >>= anyM . map (\cl
 withCtx :: String -> M a -> M a
 --withCtx msg cont = ctx %= (msg:) >> cont
 withCtx msg cont = cont
-pushAndCont :: M [()] -> Atom -> M [()]
-pushAndCont cont a = branch %= (a:) >> withCtx (show a) cont
+pushAndCont :: M ProofTree -> Atom -> M ProofTree
+pushAndCont cont a = branch %= (a:) >> withCtx (show a) cont >>= return . Node a
 
-expand :: M [()]
+expand :: M ProofTree
 expand = withCtx "expand" $ do
   showCtx
-  anyClause (allButOne (pushAndCont weak) (pushAndCont strong)) >>= return . join
+  anyClause (allButOne (pushAndCont weak) (pushAndCont strong)) >>= return . Expand
 
 addEQ :: (Term,Term) -> M ()
 addEQ lr = withCtx (show lr) $ do
   showCtx
   s <- lift $ use mguState
-  case MGU.run lr s of { Nothing -> throw; Just s' -> lift $ mguState .= s' }
+  case MGU.runMGU lr s of { Nothing -> throw; Just s' -> lift $ mguState .= s' }
 
 --------------------------------
 
@@ -137,7 +149,7 @@ showCtx :: M ()
 showCtx = return ()
 --showCtx = use ctx >>= printE
 
-strong :: M [()]
+strong :: M ProofTree
 strong = withCtx "strong" $ do
   allocNode
   BranchState path _ <- get
@@ -146,70 +158,28 @@ strong = withCtx "strong" $ do
   case path of
     [a] -> expand
     a1:a2:_ -> if not (opposite a1 a2) then throw else
-        mapM addEQ (zip (a1^.atom'args) (a2^.atom'args)) >> return []
+        mapM addEQ (zip (a1^.atom'args) (a2^.atom'args)) >> return Strong
     [] -> throw
 
-weak :: M [()]
+weak :: M ProofTree
 weak = withCtx "weak" $ do
   allocNode
   BranchState path _ <- get
   anyM [
     case path of {
-      a1:t -> anyM [mapM addEQ (zip (a1^.atom'args) (a2^.atom'args)) >> return [] | a2 <- t, opposite a1 a2];
+      a1:t -> anyM [mapM addEQ (zip (a1^.atom'args) (a2^.atom'args)) >> return Weak | a2 <- t, opposite a1 a2];
       _ -> throw
     },
     expand]
 
 --------------------------------
 
-notAndForm'pred :: Traversal' NotAndForm Pred
-notAndForm'pred = notAndForm'orClauses.traverse.orClause'atoms.traverse.atom'pred
-notAndForm'term :: Traversal' NotAndForm Term
-notAndForm'term = notAndForm'pred.pred'spred.spred'args.traverse
-
-pred'arity :: Fold Pred (PredName,Int)
-pred'arity g p@(PCustom pn args) = g (pn,length args) *> pure p
-pred'arity g p = pure p
-
-term'arity :: Fold Term (FunName,Int)
-term'arity g t@(TFun fn args) = g (fn,length args) *> pure t
-term'arity g t = pure t
-
--- converts DNF form to prove, into CNF form to refute
-convForm :: OrForm -> NotAndForm
-convForm form = do
-  let {
-    clauses = toNotAndForm form;
-    eq l r = Atom True (PEq (TVar $ fromIntegral l) (TVar $ fromIntegral r));
-    neq l r = Atom False (PEq (TVar $ fromIntegral l) (TVar $ fromIntegral r));
-    refl = OrClause [eq 0 0]; 
-    symm = OrClause [neq 0 1, eq 1 0]; 
-    trans = OrClause [neq 0 1, neq 1 2, eq 0 2]; 
-    congPred :: (PredName,Int) -> NotAndForm;
-    congPred (n,c) = let { -- A 0..c  $0=$i and p($1..$c) => p($1..$0..$c)
-      pred :: [Int] -> Pred;
-      pred l = PCustom n (map (TVar . fromIntegral) l);
-      x :: [Int] = [1..c];
-    } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom False (pred x), Atom True (pred $ replace [v] [0] x)]) x;
-    congFun :: (FunName,Int) -> NotAndForm;
-    congFun (n,c) = let { -- A 0..c  $0=$i => f($1..$c)=f($1..$0..$c)
-      term :: [Int] -> Term;
-      term l = TFun n (map (TVar . fromIntegral) l);
-      x :: [Int] = [1..c];
-    } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom True (PEq (term x) (term $ replace [v] [0] x))]) x;
-    congPredClauses :: NotAndForm = mconcat $ map congPred $ nub $ sort $ clauses^..notAndForm'pred.pred'arity;
-    congFunClauses :: NotAndForm = mconcat $ map congFun $ nub $ sort $ clauses^..notAndForm'term.term'subterm.term'arity;
-  } in NotAndForm [refl,symm,trans] <> congPredClauses <> congFunClauses <> clauses
-
-finalSubst :: MGU.State -> Clause -> Clause
-finalSubst mgus (Clause atoms as) = Clause atoms (Map.map (MGU.eval mgus) as)
-
 -- returns a DNF of terminal clauses which implies input form (and is always true)
 prove :: OrForm -> Int -> IO (Maybe Proof, Int)
 prove form nodesLimit = do
   let {
     -- negate the input form
-    clauses = convForm form;
+    clauses = toNotAndForm (appendEqAxioms form);
     initialState = TabState clauses 0 0 nodesLimit Map.empty [];
     -- start with expand step
     runBranch = StateM.runStateT expand (BranchState [] []);
@@ -219,9 +189,11 @@ prove form nodesLimit = do
   }
   --print clauses
   (res,searchState) <- runSearch
-  return $ case res of
-    Left () -> (Nothing,_failCount searchState)
-    Right (_,s) -> (Just $ map (finalSubst $ s^.mguState) (s^.usedClauses), searchState^.failCount)
+  case res of
+    Left () -> return (Nothing,_failCount searchState)
+    Right ((proofTree,bs),s) -> do
+      print proofTree
+      return (Just $ s^.usedClauses & traverse.clause'val.traverse %~ eval (s^.mguState), searchState^.failCount)
 
 proveLoop :: OrForm -> Int -> IO (Maybe Proof)
 proveLoop f limit = let

@@ -13,14 +13,17 @@ module DNF(
   OrClause(..), orClause'atoms,
   notOrClause, notAndClause,
   toNotAndForm, toOrForm,
+  appendEqAxioms,
 ) where
 
 import Prelude hiding(pred)
-import Skolem
+import Pred
+import qualified Skolem
 import Lib
 import qualified Data.List.Ordered as Ordered
-import Control.Lens(Traversal',Lens',filtered,makeLenses,(&),(%~))
+import Control.Lens(Traversal',Lens',Fold,filtered,makeLenses,(&),(%~))
 import Data.List(intercalate)
+import Data.List.Utils (replace)
 
 data Atom = Atom { _atom'sign :: Bool, _atom'pred :: Pred } deriving(Eq,Ord)
 makeLenses ''Atom
@@ -44,7 +47,7 @@ makeLenses ''NotAndForm
 -- Disjunctive Normal Form
 newtype AndClause = AndClause { _andClause'atoms :: [Atom] } deriving(Ord,Eq)
 makeLenses ''AndClause
-newtype OrForm = OrForm { _orForm'andClauses :: [AndClause] } deriving(Ord,Eq)
+newtype OrForm = OrForm { _orForm'andClauses :: [AndClause] } deriving(Ord,Eq,Semigroup,Monoid)
 makeLenses ''OrForm
 
 toNotAndForm :: OrForm -> NotAndForm
@@ -82,4 +85,43 @@ simplify (OrForm x) =
   in OrForm notSubsumed
 
 isSubForm :: OrForm -> OrForm -> Bool
-isSubForm (OrForm a) (OrForm b) = Ordered.subset a b
+isSubForm (OrForm a) (OrForm b) = Ordered.subset (unique a) (unique b)
+
+---------------------------------------------------------------------
+
+orForm'pred :: Traversal' OrForm Pred
+orForm'pred = orForm'andClauses.traverse.andClause'atoms.traverse.atom'pred
+orForm'term :: Traversal' OrForm Term
+orForm'term = orForm'pred.pred'spred.spred'args.traverse
+
+pred'arity :: Fold Pred (PredName,Int)
+pred'arity g p@(PCustom pn args) = g (pn,length args) *> pure p
+pred'arity g p = pure p
+
+term'arity :: Fold Term (FunName,Int)
+term'arity g t@(TFun fn args) = g (fn,length args) *> pure t
+term'arity g t = pure t
+
+appendEqAxioms :: OrForm -> OrForm
+appendEqAxioms f = let {
+    eq l r = Atom True (PEq (TVar $ fromIntegral l) (TVar $ fromIntegral r));
+    neq l r = Atom False (PEq (TVar $ fromIntegral l) (TVar $ fromIntegral r));
+    refl = OrClause [eq 0 0]; 
+    symm = OrClause [neq 0 1, eq 1 0]; 
+    trans = OrClause [neq 0 1, neq 1 2, eq 0 2]; 
+    congPred :: (PredName,Int) -> NotAndForm;
+    congPred (n,c) = let { -- A 0..c  $0=$i and p($1..$c) => p($1..$0..$c)
+      pred :: [Int] -> Pred;
+      pred l = PCustom n (map (TVar . fromIntegral) l);
+      x :: [Int] = [1..c];
+    } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom False (pred x), Atom True (pred $ replace [v] [0] x)]) x;
+    congFun :: (FunName,Int) -> NotAndForm;
+    congFun (n,c) = let { -- A 0..c  $0=$i => f($1..$c)=f($1..$0..$c)
+      term :: [Int] -> Term;
+      term l = TFun n (map (TVar . fromIntegral) l);
+      x :: [Int] = [1..c];
+    } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom True (PEq (term x) (term $ replace [v] [0] x))]) x;
+    congPredClauses :: NotAndForm = mconcat $ map congPred $ unique $ f^..orForm'pred.pred'arity;
+    congFunClauses :: NotAndForm = mconcat $ map congFun $ unique $ f^..orForm'term.term'subterm.term'arity;
+  } in toOrForm (NotAndForm [refl,symm,trans] <> congPredClauses <> congFunClauses) <> f
+

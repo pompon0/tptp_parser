@@ -39,7 +39,7 @@ dependencies:
 - split
 - data-ordlist
 
-ghc-options: -O -Wincomplete-patterns -Werror -fbreak-on-error
+ghc-options: -Wincomplete-patterns -Werror -fbreak-on-error
 
 library:
   source-dirs: src
