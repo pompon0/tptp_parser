@@ -19,10 +19,10 @@ runTest tptpString = do
   form <- assert $ toDNF tptpFile
   --putStrLn ("\n=== BEGIN FORM ===\n" ++ show form ++ "\n=== END FORM ===\n")
   proof <- Tableaux.proveLoop form 20 >>= assertMaybe
-  putStrLn "problem"
-  print form
-  putStrLn "proof source"
-  print (Proof.sourceClauses proof)
-  putStrLn "proof terminal"
-  print (Proof.terminalClauses proof)
+  --putStrLn "problem"
+  --print form
+  --putStrLn "proof source"
+  --print (Proof.sourceClauses proof)
+  --putStrLn "proof terminal"
+  --print (Proof.terminalClauses proof)
   Proof.check form proof

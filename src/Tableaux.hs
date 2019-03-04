@@ -60,14 +60,17 @@ data BranchState = BranchState {
 }
 makeLenses ''BranchState
 
-type M = StateM.StateT BranchState (StateM.StateT TabState (ExceptM.ExceptT () (StateM.StateT SearchState IO)))
+type M = ContM.ContT ProofTree (StateM.StateT BranchState (StateM.StateT TabState (ExceptM.ExceptT () (StateM.StateT SearchState IO))))
 type AllocM = StateM.StateT Valuation M
 
-allM :: MonadState s m => [m a] -> m [a]
-allM tasks = do { s <- get; res <- mapM (put s >>) tasks; put s; return res }
+liftBranch = lift
+liftTab = liftBranch.lift
 
-anyM :: MonadPlus m => [m a] -> m a
-anyM = foldl mplus mzero
+allM :: (MonadState s m) => [m ProofTree] -> m ProofTree
+allM tasks = do { s <- get; res <- mapM (put s >>) tasks; put s; return (Expand res) }
+
+anyM :: (MonadPlus m) => [a] -> ContM.ContT r m a
+anyM choices = ContM.ContT (\cont -> foldl mplus mzero (map cont choices))
 
 {-anyM :: [M a] -> M a
 anyM tasks = StateM.StateT (\branch -> StateM.StateT (\tab ->
@@ -81,21 +84,20 @@ anyM tasks = StateM.StateT (\branch -> StateM.StateT (\tab ->
 
 throw :: M a
 throw = do
-  lift $ lift $ lift $ failCount %= (+1)
-  lift $ lift $ ExceptM.throwE ()
+  lift $ lift $ lift $ lift $ failCount %= (+1)
+  lift $ lift $ lift $ ExceptM.throwE ()
 
-allButOne :: (a -> M b) -> (a -> M b) -> [a] -> M [b]
-allButOne all one [] = throw
-allButOne all one (h:t) = anyM ([
-  allM (one h : map all t),
-  do { rt <- allButOne all one t; rh <- allM [all h]; return $ rh ++ rt}] )
+allButOne :: (a -> M ProofTree) -> (a -> M ProofTree) -> [a] -> M ProofTree
+allButOne all one tasks = do
+  (x,r) <- anyM (select tasks)
+  allM (one x : map all r)
 
 ------------------------------------------------- 
 
 allocVar :: M Term
 allocVar = do
-  vu <- lift $ use nextVar
-  lift $ nextVar %= (+1)
+  vu <- liftTab $ use nextVar
+  liftTab $ nextVar %= (+1)
   return (TVar vu)
 
 allocM :: VarName -> AllocM Term
@@ -110,19 +112,19 @@ orClause'subst = orClause'atoms.traverse.atom'pred.pred'spred.spred'args.travers
 allocVars :: OrClause -> M [Atom]
 allocVars cla = withCtx (show cla) $ do
   (cla2,m) <- StateM.runStateT (orClause'subst allocM cla) Map.empty
-  lift $ usedClauses %= (Clause (notOrClause cla) m:)
+  liftTab $ usedClauses %= (Clause (notOrClause cla) m:)
   return $ cla2^.orClause'atoms
 
 allocNode :: M ()
 allocNode = do
-  nu <- lift $ use nodesUsed
-  nl <- lift $ use nodesLimit
-  if nu >= nl then throw else lift $ nodesUsed %= (+1)
+  nu <- liftTab $ use nodesUsed
+  nl <- liftTab $ use nodesLimit
+  if nu >= nl then throw else liftTab $ nodesUsed %= (+1)
 
 
 -- allocates fresh variables
-anyClause :: ([Atom] -> M a) -> M a
-anyClause cont = (lift $ use (clauses.notAndForm'orClauses)) >>= anyM . map (\cla -> allocVars cla >>= cont)
+anyClause :: M [Atom]
+anyClause = (liftTab $ use $ clauses.notAndForm'orClauses) >>= anyM >>= allocVars
 
 withCtx :: String -> M a -> M a
 --withCtx msg cont = ctx %= (msg:) >> cont
@@ -133,13 +135,13 @@ pushAndCont cont a = branch %= (a:) >> withCtx (show a) cont >>= return . Node a
 expand :: M ProofTree
 expand = withCtx "expand" $ do
   showCtx
-  anyClause (allButOne (pushAndCont weak) (pushAndCont strong)) >>= return . Expand
+  anyClause >>= allButOne (pushAndCont weak) (pushAndCont strong)
 
 addEQ :: (Term,Term) -> M ()
 addEQ lr = withCtx (show lr) $ do
   showCtx
-  s <- lift $ use mguState
-  case MGU.runMGU lr s of { Nothing -> throw; Just s' -> lift $ mguState .= s' }
+  s <- liftTab $ use mguState
+  case MGU.runMGU lr s of { Nothing -> throw; Just s' -> liftTab $ mguState .= s' }
 
 --------------------------------
 
@@ -165,9 +167,9 @@ weak :: M ProofTree
 weak = withCtx "weak" $ do
   allocNode
   BranchState path _ <- get
-  anyM [
+  join $ anyM [
     case path of {
-      a1:t -> anyM [mapM addEQ (zip (a1^.atom'args) (a2^.atom'args)) >> return Weak | a2 <- t, opposite a1 a2];
+      a1:t -> join $ anyM [mapM addEQ (zip (a1^.atom'args) (a2^.atom'args)) >> return Weak | a2 <- t, opposite a1 a2];
       _ -> throw
     },
     expand]
@@ -182,7 +184,8 @@ prove form nodesLimit = do
     clauses = toNotAndForm (appendEqAxioms form);
     initialState = TabState clauses 0 0 nodesLimit Map.empty [];
     -- start with expand step
-    runBranch = StateM.runStateT expand (BranchState [] []);
+    runCont = ContM.runContT expand return;
+    runBranch = StateM.runStateT runCont (BranchState [] []);
     runTab = StateM.runStateT runBranch initialState;
     runExcept = ExceptM.runExceptT runTab;
     runSearch = StateM.runStateT runExcept (SearchState 0);
@@ -192,7 +195,7 @@ prove form nodesLimit = do
   case res of
     Left () -> return (Nothing,_failCount searchState)
     Right ((proofTree,bs),s) -> do
-      print proofTree
+      --print proofTree
       return (Just $ s^.usedClauses & traverse.clause'val.traverse %~ eval (s^.mguState), searchState^.failCount)
 
 proveLoop :: OrForm -> Int -> IO (Maybe Proof)
@@ -201,7 +204,7 @@ proveLoop f limit = let
     (res,failCount) <- prove f i
     case res of {
       Nothing -> do {
-        putStrLnE (show i ++ " -> " ++ show failCount);
+        --putStrLnE (show i ++ " -> " ++ show failCount);
         if i<limit then rec f (i+1) else putStrLnE "fail" >> return Nothing
       };
       Just x -> return (Just x)

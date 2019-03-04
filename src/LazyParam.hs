@@ -51,46 +51,34 @@ type M = ContM.ContT [()] (StateM.StateT BranchState (StateM.StateT TabState (Ex
 liftBranch = lift
 liftTab = liftBranch . lift
 
---allM :: [M a] -> M [a]
---allM tasks = do { s :: BranchState <- get; res <- mapM (put s >>) tasks; put s; return res }
+type Output = StateM.StateT SearchState IO (Either () (([()],BranchState),TabState))
 
---anyM :: MonadPlus m => [m a] -> m a
---anyM = foldl mplus mzero
-
-{-anyM :: [M a] -> M a
-anyM tasks = StateM.StateT (\branch -> StateM.StateT (\tab ->
-  let
-    wrap (i,t) = do
-      lift $ choices %= ((show i ++ "/" ++ show (length tasks)):)
-      showCtx
-      t
-    run t = ExceptM.runExceptT (StateM.runStateT (StateM.runStateT t branch) tab)
-    res = map (run.wrap) $ zip [1..] tasks
-    find [] = do { putStrLnE "out of options"; return $ Left () }
-    find (h:t) = do { x <- h; case x of { Left _ -> find t; r@(Right _) -> do { putStrLnE "got it"; return r} } }
-  in ExceptM.ExceptT $ find res))
+{-anyM :: [a] -> M a
+anyM choices_ = ContM.ContT $ \cont -> StateM.StateT $ \branch -> StateM.StateT $ \tab ->
+    let
+      wrap (i,a) = do { liftTab $ choices %= ((show i ++ "/" ++ show (length choices_)):); showCtx; return a }
+      run t = ExceptM.runExceptT (StateM.runStateT (StateM.runStateT (ContM.runContT t cont) branch) tab)
+      res = map (run.wrap) $ zip [1..] choices_
+      find :: [Output] -> Output
+      find [] = do { putStrLnE "out of options"; return (Left ()) }
+      find (h:t) = do { x<-h; case x of { Left () -> find t; x@(Right _) -> do { putStrLnE "got it"; return x } } }
+    in ExceptM.ExceptT (find res)
 -}
-
 anyM :: (MonadPlus m) => [a] -> ContM.ContT r m a
 anyM choices = ContM.ContT (\cont -> foldl mplus mzero (map cont choices))
 
-allM :: (MonadState s m) => [a] -> ContM.ContT [r] m a
-allM choices = ContM.ContT (\cont -> do { s <- get; res <- mapM (\x -> put s >> cont x) choices; put s; return (join res) })
+allM :: (MonadState s m) => [m [()]] -> m [()]
+allM tasks = do { s <- get; res <- mapM (put s >>) tasks; put s; return (join res) }
 
 throw :: M a
 throw = do
   lift $ lift $ lift $ lift $ failCount %= (+1)
   lift $ lift $ lift $ ExceptM.throwE ()
 
-select :: [a] -> [(a,[a])]
-select [] = []
-select (h:t) = (h,t) : map (\(x,r) -> (x,(h:r))) (select t)
-
-allButOne :: (a -> M b) -> (a -> M b) -> [a] -> M b
+allButOne :: (a -> M [()]) -> (a -> M [()]) -> [a] -> M [()]
 allButOne all one tasks = do
   (x,r) <- anyM (select tasks)
-  t <- allM (one x : map all r)
-  t
+  allM (one x : map all r)
 
 ------------------------------------------------- 
 
@@ -125,19 +113,21 @@ allocNode = do
 
 -- allocates fresh variables
 anyClause :: M [Atom]
-anyClause = liftTab (use $ clauses.notAndForm'orClauses) >>= anyM >>= allocVars
+anyClause = (liftTab $ use $ clauses.notAndForm'orClauses) >>= anyM >>= allocVars
 
-withCtx :: String -> M a -> M a
-withCtx msg cont = do
-  ctx %= (msg:) >> cont
+withCtx msg cont = cont
+--withCtx :: String -> M a -> M a
+--withCtx msg cont = do
+--  ctx %= (msg:) >> cont
 
-showCtx :: M ()
-showCtx = do
-  nu <- liftTab $ use nodesUsed
-  nl <- liftTab $ use nodesLimit
-  ch <- liftTab $ use choices
-  c <- use ctx
-  putStrLnE (show nu ++ "/" ++ show nl ++ "  " ++ show (reverse ch) ++ "  " ++ show (reverse c))
+showCtx = return ()
+--showCtx :: M ()
+--showCtx = do
+--  nu <- liftTab $ use nodesUsed
+--  nl <- liftTab $ use nodesLimit
+--  ch <- liftTab $ use choices
+--  c <- use ctx
+--  putStrLnE (show nu ++ "/" ++ show nl ++ "  " ++ show (reverse ch) ++ "  " ++ show (reverse c))
 
 pushAndCont :: M [()] -> Atom -> M [()]
 pushAndCont cont a = branch %= (a:) >> withCtx (show a) cont
@@ -173,8 +163,7 @@ lazyEq r s = do
   mapM_ addEQ (zip v r)
   -- WARNING: zip will truncate the longer list if lengths mismatch
   -- TODO: throw an error instead
-  (s',v') <- allM (zip s v) 
-  pushAndCont weak (Atom False (PEq s' v'))
+  allM $ map (\(s',v') -> pushAndCont weak (Atom False (PEq s' v'))) (zip s v) 
 
 data Swap s a = Swap { runSwap :: [(a,s)], runId :: [a] }
 
@@ -194,22 +183,21 @@ atom'term = atom'pred.pred'spred.spred'args.traverse
 -- S || \Gamma, L[p], z~r
 -- S || \Gamma, L[p], f(s)~r
 strongLEq :: Atom -> (Term,Term) -> M [()]
-strongLEq aLp (l,r)= do
+strongLEq aLp (l,r) = do
   w <- allocVar
   (aLw,p) <- anyM (runSwap $ atom'term (swap w) aLp)
   case l of
     z@(TVar _) -> do {
       addEQ (p,z);
       addLT (w,z);
-      subgoal <- allM [aLw, Atom False (PEq r w)];
-      pushAndCont weak subgoal;
+      allM $ map (pushAndCont weak) [aLw, Atom False (PEq r w)];
     }
     TFun f s -> do {
       v <- mapM (\_ -> allocVar) s;
       addEQ (p,TFun f v);
       addLT (w,TFun f v);
-      subgoal <- allM (aLw : map (\(x,y) -> Atom False (PEq x y)) (zip (r:s) (w:v)));
-      pushAndCont weak subgoal;
+      let { subgoals = aLw : map (\(x,y) -> Atom False (PEq x y)) (zip (r:s) (w:v)) };
+      allM $ map (pushAndCont weak) subgoals;
     }
 
 -- S || \Gamma, l~r, L[f(s)]
@@ -223,8 +211,8 @@ strongEqL (l,r) aLp = do
       addEQ (TFun f v,l);
       addLT (r,l);
       addEQ (r,w);
-      subgoal <- allM (aLw : map (\(x,y) -> Atom False (PEq x y)) (zip (r:s) (w:v)));
-      pushAndCont weak subgoal
+      let { subgoals = aLw : map (\(x,y) -> Atom False (PEq x y)) (zip (r:s) (w:v)) };
+      allM $ map (pushAndCont weak) subgoals;
     }
     _ -> throw
 
@@ -315,7 +303,7 @@ proveLoop f limit = let
     (res,failCount) <- prove f i
     case res of {
       Nothing -> do {
-        putStrLnE (show i ++ " -> " ++ show failCount);
+        --putStrLnE (show i ++ " -> " ++ show failCount);
         if i<limit then rec f (i+1) else putStrLnE "fail" >> return Nothing
       };
       Just x -> return (Just x)

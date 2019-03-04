@@ -32,6 +32,10 @@ instance Show FunName where { show (FunName n) = "f" ++ show n }
 instance Show PredName where { show (PredName n) = "p" ++ show n }
 instance Show VarName where { show (VarName n) = "v" ++ show n }
 
+select :: [a] -> [(a,[a])]
+select [] = []
+select (h:t) = (h,t) : map (\(x,r) -> (x,(h:r))) (select t)
+
 unique :: Ord a => [a] -> [a]
 unique = Set.toAscList . Set.fromList
 
