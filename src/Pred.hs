@@ -59,7 +59,7 @@ type Valuation = Map.Map VarName Term
 
 emptyValuation = Map.empty
 
--- function T[V] -> T[FV], repsresented by the valuation
+-- function T[V] -> T[FV], represented by the valuation
 eval :: Valuation -> Term -> Term
 eval s t@(TVar vn) = case Map.lookup vn s of { Nothing -> t; Just t' -> eval s t' }
 eval s (TFun f args) = TFun f (map (eval s) args)

@@ -25,9 +25,8 @@ main = do
   textProto <- getContents
   tptpFile <- assert $ TextFormat.readMessage (Text.pack textProto)
   form <- assert $ toDNF tptpFile
-  -- TODO: add debugs to LazyParam to see where it gets stuck
-  -- TODO: test against simple problems from Harrison's book
-  mProof <- killable $ Tableaux.proveLoop form 20
+  print form
+  mProof <- killable $ LazyParam.proveLoop form 100
   case mProof of
     Nothing -> error "proof not found"
     Just proof -> putStrLn (TextFormat.showMessage $ Proof.toProto proof)

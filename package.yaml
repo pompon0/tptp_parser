@@ -38,6 +38,7 @@ dependencies:
 - deepseq
 - split
 - data-ordlist
+- clock
 
 ghc-options: -Wincomplete-patterns -Werror -fbreak-on-error
 

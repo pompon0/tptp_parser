@@ -22,13 +22,10 @@ check :: PT.File -> PP.Proof -> IO Bool
 check problemProto proofProto = do
   problem <- assert $ ParserBin.toDNF problemProto
   let proof :: Proof.Proof = Proof.fromProto proofProto
-  let sourceClauses = Proof.sourceClauses proof 
-  let terminalClauses = Proof.terminalClauses proof
   putStrLn ("problem = " ++ show problem)
-  putStrLn ("sourceClauses = " ++ show sourceClauses)
-  putStrLn ("terminalClauses = " ++ show terminalClauses)
-  if not (DNF.isSubForm sourceClauses problem) then return False else do {
-    case counterExample terminalClauses of
+  putStrLn ("proof = " ++ show proof)
+  if not (DNF.isSubForm (DNF.OrForm proof) problem) then return False else do {
+    case counterExample (DNF.OrForm proof) of
       Nothing -> return True
       Just e -> do
         putStrLn("counter example: " ++ show e)

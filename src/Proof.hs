@@ -20,9 +20,7 @@ import Valid(counterExample)
 
 import qualified Control.Monad.Trans.Except as ExceptM
 
-data Clause = Clause { _clause'andClause :: AndClause, _clause'val :: Valuation } deriving(Show)
-makeLenses ''Clause
-type Proof = [Clause]
+type Proof = [AndClause]
 
 -----------------------------------------------------
 
@@ -32,21 +30,15 @@ val'lookup val vn = case Map.lookup vn val of { Just t -> t; Nothing -> TVar vn 
 andClause'subst :: Traversal AndClause AndClause VarName Term
 andClause'subst = andClause'atoms.traverse.atom'pred.pred'spred.spred'args.traverse.term'subst
 
-toDNF'Clause :: Clause -> AndClause
-toDNF'Clause (Clause c v) = c & andClause'subst %~ val'lookup v
-
-sourceClauses :: Proof -> OrForm
-sourceClauses proof = OrForm $ map (\(Proof.Clause c _) -> c) proof
-
-terminalClauses :: Proof -> OrForm
-terminalClauses proof = OrForm $ proof & traverse %~ toDNF'Clause
+andClause'term :: Traversal' AndClause Term
+andClause'term = andClause'atoms.traverse.atom'args.traverse
 
 -----------------------------------------------------
 
 check :: Monad m => DNF.OrForm -> Proof -> m ()
-check problem proof = if not (DNF.isSubForm (sourceClauses proof) (DNF.appendEqAxioms problem))
+check problem proof = if not (DNF.isSubForm (OrForm proof) (DNF.appendEqAxioms problem))
   then fail "proof doesn't imply the formula"
-  else case counterExample (terminalClauses proof) of
+  else case counterExample (OrForm proof) of
     Nothing -> return ()
     Just e -> fail (show e)
 
@@ -72,10 +64,9 @@ _Subst'toProto (vn,t) = defMessage
   & #varName .~ fromIntegral vn
   & #term .~ _Term'toProto t
 
-_Clause'toProto :: Clause -> P.Clause
-_Clause'toProto (Clause (AndClause atoms) val) = defMessage
+_Clause'toProto :: AndClause -> P.Clause
+_Clause'toProto (AndClause atoms) = defMessage
   & #atom .~ map _Atom'toProto atoms
-  & #subst .~ map _Subst'toProto (Map.toList val)
 
 toProto :: Proof -> P.Proof
 toProto clauses = defMessage
@@ -95,10 +86,8 @@ _Atom'fromProto atom =
 _Subst'fromProto :: P.Subst -> (VarName,Term)
 _Subst'fromProto sub = (fromIntegral (sub^. #varName), _Term'fromProto (sub^. #term))
 
-_Clause'fromProto :: P.Clause -> Clause
-_Clause'fromProto cla = Clause
-  (AndClause $ map _Atom'fromProto (cla^. #atom))
-  (Map.fromList $ map _Subst'fromProto (cla^. #subst))
+_Clause'fromProto :: P.Clause -> AndClause
+_Clause'fromProto cla = AndClause $ map _Atom'fromProto (cla^. #atom)
 
 fromProto :: P.Proof -> Proof
 fromProto proof = map _Clause'fromProto (proof^. #clause)

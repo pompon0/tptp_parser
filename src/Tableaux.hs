@@ -2,11 +2,13 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 module Tableaux(prove,proveLoop) where
 
 import Prelude hiding(pred)
 import Lib
-import Proof(Clause(..),Proof,clause'val)
+import Proof(Proof,andClause'term)
 import DNF
 import Pred
 import qualified Skolem
@@ -25,6 +27,9 @@ import Control.Lens(makeLenses, Fold, Traversal, Traversal', (&), (%~), (.~), ov
 import Data.List.Utils (replace)
 import Data.List(sort,nub)
 import Control.Concurrent
+import qualified System.Clock as Clock
+import Control.DeepSeq(NFData,force)
+import GHC.Generics (Generic)
 
 data ProofTree = Strong | Weak | Expand [ProofTree] | Node Atom ProofTree
 
@@ -39,8 +44,9 @@ showTree (Expand t) = join (map showTree t)
 instance Show ProofTree where { show t = unlines (showTree t) }
 
 data SearchState = SearchState {
-  _failCount :: Int
-}
+  _failCount :: Int,
+  _totalNodeCount :: Int
+} deriving(Generic,NFData)
 makeLenses ''SearchState
 
 data TabState = TabState {
@@ -50,7 +56,7 @@ data TabState = TabState {
   -- clauses without variables, see for example: (!p or !q) and (p or q)
   _nodesUsed, _nodesLimit :: Int,
   _mguState :: Valuation, --_eq :: Set.Set (Term,Term)
-  _usedClauses :: [Clause]
+  _usedClauses :: [AndClause]
 }
 makeLenses ''TabState
 
@@ -65,12 +71,13 @@ type AllocM = StateM.StateT Valuation M
 
 liftBranch = lift
 liftTab = liftBranch.lift
-
-allM :: (MonadState s m) => [m ProofTree] -> m ProofTree
-allM tasks = do { s <- get; res <- mapM (put s >>) tasks; put s; return (Expand res) }
+liftSearch = liftTab.lift.lift
 
 anyM :: (MonadPlus m) => [a] -> ContM.ContT r m a
 anyM choices = ContM.ContT (\cont -> foldl mplus mzero (map cont choices))
+
+allM :: (MonadState s m) => [m ProofTree] -> m ProofTree
+allM tasks = do { s <- get; res <- mapM (put s >>) tasks; put s; return (Expand res) }
 
 {-anyM :: [M a] -> M a
 anyM tasks = StateM.StateT (\branch -> StateM.StateT (\tab ->
@@ -111,15 +118,16 @@ orClause'subst = orClause'atoms.traverse.atom'pred.pred'spred.spred'args.travers
 
 allocVars :: OrClause -> M [Atom]
 allocVars cla = withCtx (show cla) $ do
-  (cla2,m) <- StateM.runStateT (orClause'subst allocM cla) Map.empty
-  liftTab $ usedClauses %= (Clause (notOrClause cla) m:)
+  (cla2,_) <- StateM.runStateT (orClause'subst allocM cla) Map.empty
+  liftTab $ usedClauses %= (notOrClause cla2:)
   return $ cla2^.orClause'atoms
 
 allocNode :: M ()
 allocNode = do
   nu <- liftTab $ use nodesUsed
   nl <- liftTab $ use nodesLimit
-  if nu >= nl then throw else liftTab $ nodesUsed %= (+1)
+  if nu >= nl then throw else do
+    liftTab $ nodesUsed %= (+1)
 
 
 -- allocates fresh variables
@@ -135,6 +143,7 @@ pushAndCont cont a = branch %= (a:) >> withCtx (show a) cont >>= return . Node a
 expand :: M ProofTree
 expand = withCtx "expand" $ do
   showCtx
+  liftSearch $ totalNodeCount %= (+1)
   anyClause >>= allButOne (pushAndCont weak) (pushAndCont strong)
 
 addEQ :: (Term,Term) -> M ()
@@ -177,7 +186,7 @@ weak = withCtx "weak" $ do
 --------------------------------
 
 -- returns a DNF of terminal clauses which implies input form (and is always true)
-prove :: OrForm -> Int -> IO (Maybe Proof, Int)
+prove :: OrForm -> Int -> IO (Maybe Proof, SearchState)
 prove form nodesLimit = do
   let {
     -- negate the input form
@@ -188,23 +197,27 @@ prove form nodesLimit = do
     runBranch = StateM.runStateT runCont (BranchState [] []);
     runTab = StateM.runStateT runBranch initialState;
     runExcept = ExceptM.runExceptT runTab;
-    runSearch = StateM.runStateT runExcept (SearchState 0);
+    runSearch = StateM.runStateT runExcept (SearchState 0 0);
   }
   --print clauses
   (res,searchState) <- runSearch
   case res of
-    Left () -> return (Nothing,_failCount searchState)
+    Left () -> return (Nothing,searchState)
     Right ((proofTree,bs),s) -> do
-      --print proofTree
-      return (Just $ s^.usedClauses & traverse.clause'val.traverse %~ eval (s^.mguState), searchState^.failCount)
+      print proofTree
+      return (Just $ s^.usedClauses & traverse.andClause'term %~ eval (s^.mguState), searchState)
 
 proveLoop :: OrForm -> Int -> IO (Maybe Proof)
 proveLoop f limit = let
   rec f i = do
-    (res,failCount) <- prove f i
+    t0 <- Clock.getTime Clock.ProcessCPUTime
+    (res,searchState) <- prove f i
+    return (force searchState)
+    t1 <- Clock.getTime Clock.ProcessCPUTime
+    printE (fromIntegral (searchState^.totalNodeCount) / diffSeconds t1 t0)
     case res of {
       Nothing -> do {
-        --putStrLnE (show i ++ " -> " ++ show failCount);
+        putStrLnE (show i ++ " -> " ++ show (searchState^.failCount));
         if i<limit then rec f (i+1) else putStrLnE "fail" >> return Nothing
       };
       Just x -> return (Just x)

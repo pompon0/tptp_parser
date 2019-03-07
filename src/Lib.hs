@@ -25,6 +25,8 @@ import qualified Control.Concurrent.Thread.Delay as Delay
 import qualified Control.Concurrent.Thread as Thread
 import qualified Control.Concurrent.Timeout as Timeout
 
+import qualified System.Clock as Clock
+
 newtype FunName = FunName Int deriving (Eq,Num,Ord,Integral,Real,Enum)
 newtype PredName = PredName Int deriving(Eq,Num,Ord,Integral,Real,Enum)
 newtype VarName = VarName Int deriving (Eq,Num,Ord,Integral,Real,Enum)
@@ -121,3 +123,9 @@ toListOf t = getConst . t (\a -> Const [a])
 (^.) :: s -> Getting a s t a b -> a
 (^.) s g = getConst $ g (\a -> Const a) s
 infix 8 ^.,^..
+
+--------------------------------------------
+
+diffSeconds :: Clock.TimeSpec -> Clock.TimeSpec -> Double
+diffSeconds t1 t0 = (*1e-9) $ fromIntegral $ Clock.toNanoSecs $ Clock.diffTimeSpec t1 t0
+

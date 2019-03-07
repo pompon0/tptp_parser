@@ -2,7 +2,6 @@
 module ThreadBin(main) where
 
 import System.Environment(getArgs)
-import Control.DeepSeq(force)
 import Control.Exception(evaluate)
 import Lib
 
@@ -11,9 +10,6 @@ import ConvBin(pullInteresting)
 import ParserBin(toDNF)
 import Tableaux(proveLoop) 
 import Proof(check)
-
-import Control.DeepSeq(NFData)
-import GHC.Generics(Generic)
 
 proveAndCheck :: (String, DNF.OrForm) -> (String, IO String)
 proveAndCheck (name, problem) = (,) name $ do

@@ -20,7 +20,9 @@ import Prelude hiding(pred)
 import Pred
 import qualified Skolem
 import Lib
+import qualified MGU
 import qualified Data.List.Ordered as Ordered
+import Control.Monad(foldM)
 import Control.Lens(Traversal',Lens',Fold,filtered,makeLenses,(&),(%~))
 import Data.List(intercalate)
 import Data.List.Utils (replace)
@@ -85,7 +87,22 @@ simplify (OrForm x) =
   in OrForm notSubsumed
 
 isSubForm :: OrForm -> OrForm -> Bool
-isSubForm (OrForm a) (OrForm b) = Ordered.subset (unique a) (unique b)
+isSubForm a b = all (\c -> any (isInstance c) (b^.orForm'andClauses)) (a^.orForm'andClauses)
+
+atom'runMGU :: (Atom,Atom) -> Valuation -> Maybe Valuation
+atom'runMGU (a1,a2) val = do
+  if (a1^.atom'sign) /= (a2^.atom'sign) then Nothing else return ()
+  if (a1^.atom'name) /= (a2^.atom'name) then Nothing else return ()
+  if length (a1^.atom'args) /= length (a2^.atom'args) then Nothing else return ()
+  foldM (flip MGU.runMGU) val $ zip (a1^.atom'args) (a2^.atom'args)
+
+andClause'runMGU :: (AndClause,AndClause) -> Valuation -> Maybe Valuation
+andClause'runMGU (c1,c2) val = do
+  if length (c1^.andClause'atoms) /= length (c2^.andClause'atoms) then Nothing else return ()
+  foldM (flip atom'runMGU) val $ zip (c1^.andClause'atoms) (c2^.andClause'atoms) 
+
+isInstance :: AndClause -> AndClause -> Bool
+isInstance a b = andClause'runMGU (a,b) emptyValuation /= Nothing
 
 ---------------------------------------------------------------------
 
@@ -102,13 +119,14 @@ term'arity :: Fold Term (FunName,Int)
 term'arity g t@(TFun fn args) = g (fn,length args) *> pure t
 term'arity g t = pure t
 
+eq l r = Atom True (PEq (TVar $ fromIntegral l) (TVar $ fromIntegral r));
+neq l r = Atom False (PEq (TVar $ fromIntegral l) (TVar $ fromIntegral r));
+
 appendEqAxioms :: OrForm -> OrForm
 appendEqAxioms f = let {
-    eq l r = Atom True (PEq (TVar $ fromIntegral l) (TVar $ fromIntegral r));
-    neq l r = Atom False (PEq (TVar $ fromIntegral l) (TVar $ fromIntegral r));
-    refl = OrClause [eq 0 0]; 
-    symm = OrClause [neq 0 1, eq 1 0]; 
-    trans = OrClause [neq 0 1, neq 1 2, eq 0 2]; 
+    reflAxiom = OrClause [eq 0 0];
+    symmAxiom = OrClause [neq 0 1, eq 1 0];
+    transAxiom = OrClause [neq 0 1, neq 1 2, eq 0 2];
     congPred :: (PredName,Int) -> NotAndForm;
     congPred (n,c) = let { -- A 0..c  $0=$i and p($1..$c) => p($1..$0..$c)
       pred :: [Int] -> Pred;
@@ -123,5 +141,5 @@ appendEqAxioms f = let {
     } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom True (PEq (term x) (term $ replace [v] [0] x))]) x;
     congPredClauses :: NotAndForm = mconcat $ map congPred $ unique $ f^..orForm'pred.pred'arity;
     congFunClauses :: NotAndForm = mconcat $ map congFun $ unique $ f^..orForm'term.term'subterm.term'arity;
-  } in toOrForm (NotAndForm [refl,symm,trans] <> congPredClauses <> congFunClauses) <> f
+  } in toOrForm (NotAndForm [reflAxiom,symmAxiom,transAxiom] <> congPredClauses <> congFunClauses) <> f
 
