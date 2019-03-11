@@ -8,7 +8,7 @@ import Lib
 import qualified DNF
 import ConvBin(pullInteresting)
 import ParserBin(toDNF)
-import Tableaux(proveLoop) 
+import LazyParam(proveLoop) 
 import Proof(check)
 
 proveAndCheck :: (String, DNF.OrForm) -> (String, IO String)

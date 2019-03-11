@@ -19,7 +19,8 @@ import Data.Ix(Ix)
 import Lib
 import qualified Proto.Tptp as T
 
-newtype VarRef = VarRef Int deriving(Eq,Show,Num,Ord,Ix)
+newtype VarRef = VarRef Int deriving(Eq,Num,Ord,Ix)
+instance Show VarRef where { show (VarRef x) = show x }
 
 data Form = Forall Form
   | Exists Form

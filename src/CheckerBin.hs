@@ -24,8 +24,8 @@ check problemProto proofProto = do
   let proof :: Proof.Proof = Proof.fromProto proofProto
   putStrLn ("problem = " ++ show problem)
   putStrLn ("proof = " ++ show proof)
-  if not (DNF.isSubForm (DNF.OrForm proof) problem) then return False else do {
-    case counterExample (DNF.OrForm proof) of
+  if not (DNF.isSubForm proof problem) then return False else do {
+    case counterExample proof of
       Nothing -> return True
       Just e -> do
         putStrLn("counter example: " ++ show e)

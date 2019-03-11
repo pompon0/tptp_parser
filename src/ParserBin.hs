@@ -24,9 +24,12 @@ toDNF tptpFile = fmap (DNF.simplify . DNF.dnf . Skolem.skol . NNF.nnf) (Form.fro
 main = do
   textProto <- getContents
   tptpFile <- assert $ TextFormat.readMessage (Text.pack textProto)
+  print (Form.fromProto tptpFile)
   form <- assert $ toDNF tptpFile
   print form
   mProof <- killable $ LazyParam.proveLoop form 100
   case mProof of
     Nothing -> error "proof not found"
-    Just proof -> putStrLn (TextFormat.showMessage $ Proof.toProto proof)
+    Just proof -> do
+      print proof
+      --putStrLn (TextFormat.showMessage $ Proof.toProto proof)

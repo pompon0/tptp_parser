@@ -20,7 +20,7 @@ import Valid(counterExample)
 
 import qualified Control.Monad.Trans.Except as ExceptM
 
-type Proof = [AndClause]
+type Proof = OrForm
 
 -----------------------------------------------------
 
@@ -36,9 +36,9 @@ andClause'term = andClause'atoms.traverse.atom'args.traverse
 -----------------------------------------------------
 
 check :: Monad m => DNF.OrForm -> Proof -> m ()
-check problem proof = if not (DNF.isSubForm (OrForm proof) (DNF.appendEqAxioms problem))
+check problem proof = if not (DNF.isSubForm proof (DNF.appendEqAxioms problem))
   then fail "proof doesn't imply the formula"
-  else case counterExample (OrForm proof) of
+  else case counterExample proof of
     Nothing -> return ()
     Just e -> fail (show e)
 
@@ -69,8 +69,8 @@ _Clause'toProto (AndClause atoms) = defMessage
   & #atom .~ map _Atom'toProto atoms
 
 toProto :: Proof -> P.Proof
-toProto clauses = defMessage
-  & #clause .~ map _Clause'toProto clauses
+toProto proof = defMessage
+  & #clause .~ map _Clause'toProto (proof^.orForm'andClauses)
 
 _Term'fromProto :: P.Term -> Term
 _Term'fromProto term = case term^. #type' of
@@ -90,5 +90,5 @@ _Clause'fromProto :: P.Clause -> AndClause
 _Clause'fromProto cla = AndClause $ map _Atom'fromProto (cla^. #atom)
 
 fromProto :: P.Proof -> Proof
-fromProto proof = map _Clause'fromProto (proof^. #clause)
+fromProto proof = OrForm $ map _Clause'fromProto (proof^. #clause)
 
