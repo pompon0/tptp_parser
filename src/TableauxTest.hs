@@ -9,7 +9,6 @@ import qualified Parser
 import qualified Trace
 import qualified Proof
 import ParserBin(toDNF)
-import CheckerBin(check)
 import qualified TptpSampleData as P
 
 tests = testGroup "TableauxTest" (map (\(name,tptpRaw) -> testCase name $ runTest tptpRaw) P.problems)
@@ -18,7 +17,7 @@ runTest tptpString = do
   tptpFile <- Trace.evalIO (Parser.parse tptpString) >>= assert
   form <- assert $ toDNF tptpFile
   --putStrLn ("\n=== BEGIN FORM ===\n" ++ show form ++ "\n=== END FORM ===\n")
-  proof <- Tableaux.proveLoop form 20 >>= assertMaybe
+  proof <- Tableaux.proveLoop form 10 >>= assertMaybe
   --putStrLn "problem"
   --print form
   --putStrLn "proof source"

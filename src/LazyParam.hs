@@ -57,22 +57,8 @@ liftBranch = lift
 liftTab = liftBranch.lift
 liftSearch = liftTab.lift.lift
 
-{-anyM :: [a] -> M a
-anyM choices_ = ContM.ContT $ \cont -> StateM.StateT $ \branch -> StateM.StateT $ \tab ->
-    let
-      wrap (i,a) = do { liftTab $ choices %= ((show i ++ "/" ++ show (length choices_)):); showCtx; return a }
-      run t = ExceptM.runExceptT (StateM.runStateT (StateM.runStateT (ContM.runContT t cont) branch) tab)
-      res = map (run.wrap) $ zip [1..] choices_
-      find :: [Output] -> Output
-      find [] = do { putStrLnE "out of options"; return (Left ()) }
-      find (h:t) = do { x<-h; case x of { Left () -> find t; x@(Right _) -> do { putStrLnE "got it"; return x } } }
-    in ExceptM.ExceptT (find res)
--}
 anyM :: (MonadPlus m) => [a] -> ContM.ContT r m a
 anyM choices = ContM.ContT (\cont -> foldl mplus mzero (map cont choices))
-
---allM :: (MonadState s m) => [m a] -> m [a]
---allM tasks = do { s <- get; res <- mapM (put s >>) tasks; put s; return res }
 
 branchM :: (MonadState s m) => m a -> m a
 branchM task = do { s <- get; r <- task; put s; return r }
@@ -84,10 +70,11 @@ throw = do
 
 allButOne :: (a -> M b) -> (a -> M b) -> [a] -> M [b]
 allButOne all one tasks = do
-  (x,r) <- anyM (select tasks)
-  bh <- branchM $ one x
-  bt <- mapM (branchM.all) r
-  return (bh:bt)
+  (l,x,r) <- anyM (select tasks)
+  bx <- branchM $ one x
+  bl <- mapM (branchM.all) l
+  br <- mapM (branchM.all) r
+  return (bl <> [bx] <> br)
 
 ------------------------------------------------- 
 
@@ -338,9 +325,8 @@ prove form nodesLimit = do
     Left () -> return (Nothing,searchState)
     Right ((proofTree,bs),s) -> do
       let proofTree' = proofTree & Tree.node'deepAtom.atom'term %~ eval (s^.mguState)
-      print proofTree'
+      printE proofTree'
       let proof = toOrForm $ NotAndForm (proofTree'^..(Tree.node'proof))
-      print proof
       return (Just proof, searchState) 
 
 proveLoop :: OrForm -> Int -> IO (Maybe Proof.Proof)

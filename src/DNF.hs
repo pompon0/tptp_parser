@@ -13,7 +13,7 @@ module DNF(
   OrClause(..), orClause'atoms,
   notOrClause, notAndClause,
   toNotAndForm, toOrForm,
-  appendEqAxioms,
+  appendEqAxioms, isEqAxiom,
 ) where
 
 import Prelude hiding(pred)
@@ -26,6 +26,7 @@ import Control.Monad(foldM)
 import Control.Lens(Traversal',Lens',Fold,filtered,makeLenses,(&),(%~))
 import Data.List(intercalate)
 import Data.List.Utils (replace)
+import qualified Data.Set as Set
 
 data Atom = Atom { _atom'sign :: Bool, _atom'pred :: Pred } deriving(Eq,Ord)
 makeLenses ''Atom
@@ -41,8 +42,10 @@ opposite :: Atom -> Atom -> Bool
 opposite a1 a2 = a1^.atom'sign /= a2^.atom'sign && a1^.atom'name == a2^.atom'name
 
 -- negated Conjunctive Normal Form
-newtype OrClause = OrClause { _orClause'atoms :: [Atom] } deriving(Show,Ord,Eq)
+newtype OrClause = OrClause { _orClause'atoms :: [Atom] } deriving(Ord,Eq)
 makeLenses ''OrClause
+instance Show OrClause where { show c = intercalate " \\/ " $ map show (c^.orClause'atoms) }
+
 newtype NotAndForm = NotAndForm { _notAndForm'orClauses :: [OrClause] } deriving(Show,Ord,Eq,Semigroup,Monoid)
 makeLenses ''NotAndForm
 
@@ -132,14 +135,55 @@ appendEqAxioms f = let {
       pred :: [Int] -> Pred;
       pred l = PCustom n (map (TVar . fromIntegral) l);
       x :: [Int] = [1..c];
-    } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom False (pred x), Atom True (pred $ replace [v] [0] x)]) x;
+    } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom True (pred $ replace [v] [0] x), Atom False (pred x)]) x;
     congFun :: (FunName,Int) -> NotAndForm;
     congFun (n,c) = let { -- A 0..c  $0=$i => f($1..$c)=f($1..$0..$c)
       term :: [Int] -> Term;
       term l = TFun n (map (TVar . fromIntegral) l);
       x :: [Int] = [1..c];
-    } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom True (PEq (term x) (term $ replace [v] [0] x))]) x;
+    } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom True (PEq (term $ replace [v] [0] x) (term x))]) x;
     congPredClauses :: NotAndForm = mconcat $ map congPred $ unique $ f^..orForm'pred.pred'arity;
     congFunClauses :: NotAndForm = mconcat $ map congFun $ unique $ f^..orForm'term.term'subterm.term'arity;
-  } in toOrForm (NotAndForm [reflAxiom,symmAxiom,transAxiom] <> congPredClauses <> congFunClauses) <> f
+  } in f <> toOrForm (NotAndForm [reflAxiom,symmAxiom,transAxiom] <> congPredClauses <> congFunClauses)
 
+isEqAxiom :: AndClause -> Bool
+isEqAxiom c = isReflAxiom c || isSymmAxiom c || isTransAxiom c || isPredCongAxiom c || isFunCongAxiom c
+
+isReflAxiom c = case c of
+  AndClause [Atom False (PEq a b)] -> a==b
+  _ -> False
+
+isSymmAxiom c = case c of
+  AndClause [Atom s (PEq a b), Atom s' (PEq b' a')] -> s/=s' && a==a' && b==b'
+  _ -> False
+
+isTransAxiom c = case (c^..negPred,c^..posPred.pred'pcustom) of
+  ([PEq a1 a2],[]) -> any (\(l,(b1,b2),r) -> isSubRelation [(a1,b1),(a2,b2)] (l<>r)) $ select $ c^..posPred.pred'peq
+  _ -> False
+
+pred'peq :: Traversal' Pred (Term,Term)
+pred'peq f (PEq x y) = pure (\(x',y') -> PEq x' y') <*> f (x,y)
+pred'peq f p = pure p
+
+pred'pcustom :: Traversal' Pred (PredName,[Term])
+pred'pcustom f (PCustom pn args) = pure (\(pn',args') -> PCustom pn' args') <*> f (pn,args)
+pred'pcustom f p = pure p
+
+posPred :: Fold AndClause Pred
+posPred = andClause'atoms.traverse.filtered (^.atom'sign).atom'pred
+
+negPred :: Fold AndClause Pred
+negPred = andClause'atoms.traverse.filtered (not.(^.atom'sign)).atom'pred
+
+isSubRelation :: (Eq a, Ord a) => [(a,a)] -> [(a,a)] -> Bool
+isSubRelation a b =
+  let norm r = Set.fromList [if x<y then (x,y) else (y,x) | (x,y) <- r, x/=y]
+  in Set.isSubsetOf (norm a) (norm b)
+
+isPredCongAxiom c = case (c^..negPred, c^..posPred.pred'pcustom) of
+  ([PCustom pn a], [(pn',a')]) -> pn==pn' && isSubRelation (zip a a') (c^..posPred.pred'peq) 
+  _ -> False
+
+isFunCongAxiom c = case (c^..negPred, c^..posPred.pred'pcustom) of
+  ([PEq (TFun fn a) (TFun fn' a')], []) -> fn==fn' && isSubRelation (zip a a') (c^..posPred.pred'peq) 
+  _ -> False

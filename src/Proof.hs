@@ -35,8 +35,19 @@ andClause'term = andClause'atoms.traverse.atom'args.traverse
 
 -----------------------------------------------------
 
-check :: Monad m => DNF.OrForm -> Proof -> m ()
-check problem proof = if not (DNF.isSubForm proof (DNF.appendEqAxioms problem))
+--check :: Monad m => DNF.OrForm -> Proof -> m ()
+check :: DNF.OrForm -> Proof -> IO ()
+check problem proof =  do
+  let proofEssence = OrForm $ filter (not. DNF.isEqAxiom) (proof^.orForm'andClauses)
+  printE "problem:"
+  printE problem
+  printE "problem with axioms:"
+  printE (DNF.appendEqAxioms problem)
+  printE "proof:"
+  printE proof
+  printE "proofEssence:"
+  printE proofEssence
+  if not (DNF.isSubForm proofEssence problem)
   then fail "proof doesn't imply the formula"
   else case counterExample proof of
     Nothing -> return ()
