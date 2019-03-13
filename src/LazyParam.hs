@@ -71,18 +71,23 @@ anyM choices_ = ContM.ContT $ \cont -> StateM.StateT $ \branch -> StateM.StateT 
 anyM :: (MonadPlus m) => [a] -> ContM.ContT r m a
 anyM choices = ContM.ContT (\cont -> foldl mplus mzero (map cont choices))
 
-allM :: (MonadState s m) => [m Tree.Node] -> m [Tree.Node]
-allM tasks = do { s <- get; res <- mapM (put s >>) tasks; put s; return res }
+--allM :: (MonadState s m) => [m a] -> m [a]
+--allM tasks = do { s <- get; res <- mapM (put s >>) tasks; put s; return res }
+
+branchM :: (MonadState s m) => m a -> m a
+branchM task = do { s <- get; r <- task; put s; return r }
 
 throw :: M a
 throw = do
   lift $ lift $ lift $ lift $ failCount %= (+1)
   lift $ lift $ lift $ ExceptM.throwE ()
 
-allButOne :: (a -> M Tree.Node) -> (a -> M Tree.Node) -> [a] -> M [Tree.Node]
+allButOne :: (a -> M b) -> (a -> M b) -> [a] -> M [b]
 allButOne all one tasks = do
   (x,r) <- anyM (select tasks)
-  allM (one x : map all r)
+  bh <- branchM $ one x
+  bt <- mapM (branchM.all) r
+  return (bh:bt)
 
 ------------------------------------------------- 
 
@@ -135,15 +140,14 @@ showCtx = return ()
 --  c <- use ctx
 --  putStrLnE (show nu ++ "/" ++ show nl ++ "  " ++ show (reverse ch) ++ "  " ++ show (reverse c))
 
-pushAndCont :: M Tree.Node -> Atom -> M Tree.Node
-pushAndCont cont a = branch %= (a:) >> withCtx (show a) cont
+pushAndCont :: M Tree.Node -> Atom -> M (Atom,Tree.Node)
+pushAndCont cont a = branch %= (a:) >> withCtx (show a) cont >>= return.((,) a)
 
 expand :: M Tree.Node
 expand = do
   liftSearch $ totalNodeCount %= (+1)
   cla <- anyClause
-  (root:_) <- liftBranch $ use branch
-  allButOne (pushAndCont weak) (pushAndCont strong) cla >>= return . (Tree.expand root)
+  allButOne (pushAndCont weak) (pushAndCont strong) cla >>= return . Tree.expand
 
 --------------------------------
 
@@ -166,14 +170,14 @@ addLT lr = do
 
 --------------------------------
 
-lazyEq :: [Term] -> [Term] -> M [Tree.Node]
+lazyEq :: [Term] -> [Term] -> M [(Atom,Tree.Node)]
 lazyEq r s = do
   v <- mapM (\_ -> allocVar) r
   mapM_ addEQ (zip v r)
   -- WARNING: zip will truncate the longer list if lengths mismatch
   -- TODO: throw an error instead
   liftSearch $ totalNodeCount %= (+1)
-  (allM $ map (\(s',v') -> pushAndCont weak (Atom False (PEq s' v'))) (zip s v))
+  (mapM (\(s',v') -> branchM $ pushAndCont weak (Atom False (PEq s' v'))) (zip s v))
 
 data Swap s a = Swap { runSwap :: [(a,s)], runId :: [a] }
 
@@ -203,18 +207,20 @@ strongLEq aLp (l,r) = do
       addEQ (p,z);
       addLT (w,z);
       liftSearch $ totalNodeCount %= (+1);
-      [nLw,nrw] <- (allM $ map (pushAndCont weak) [aLw, Atom False (PEq r w)]);
-      return $ Tree.paraStrong1 (aLp,aLw) (p,r,w) nLw nrw;
+      anLw <- branchM $ pushAndCont weak aLw;
+      anrw <- branchM $ pushAndCont weak $ Atom False $ PEq r w;
+      return $ Tree.paraStrong1 aLp (Atom False $ PEq p w, Tree.Leaf) anLw anrw;
     }
     fs@(TFun f s) -> do {
       v <- mapM (\_ -> allocVar) s;
       let { fv = TFun f v };
       addEQ (p,fv);
       addLT (w,fv);
-      let { subgoals = aLw : map (\(x,y) -> Atom False (PEq x y)) (zip (r:s) (w:v)) };
       liftSearch $ totalNodeCount %= (+1);
-      (nLw:nrw:nsv) <- (allM $ map (pushAndCont weak) subgoals);
-      return $ Tree.paraStrong2 (aLp,aLw) (fs,fv) (r,w) nLw nrw nsv;
+      anLw <- branchM $ pushAndCont weak aLw;
+      anrw <- branchM $ pushAndCont weak $ Atom False $ PEq r w;
+      ansv <- mapM (\(x,y) -> branchM $ pushAndCont weak $ Atom False $ PEq x y) (zip s v);
+      return $ Tree.paraStrong2 aLp f (Atom False $ PEq fs r, Tree.Leaf) anLw anrw ansv;
     }
 
 -- S || \Gamma, l~r, L[f(s)]
@@ -230,10 +236,10 @@ strongEqL (l,r) aLp = do
       addEQ (fv,l);
       addLT (r,l);
       addEQ (r,w);
-      let { subgoals = aLw : map (\(x,y) -> Atom False (PEq x y)) (zip s v) };
       liftSearch $ totalNodeCount %= (+1);
-      (nLw:nsv) <- allM $ map (pushAndCont weak) subgoals;
-      return $ Tree.paraStrong3 (aLp,aLw) (fs,fv) w nLw nsv;
+      anLw <- branchM $ pushAndCont weak aLw;
+      ansv <- mapM (\(x,y) -> branchM $ pushAndCont weak $ Atom False $ PEq x y) (zip s v);
+      return $ Tree.paraStrong3 aLp f (Atom False $ PEq fv w, Tree.Leaf) anLw ansv;
     }
     _ -> throw
 
@@ -282,7 +288,8 @@ weakLEq aLp (l,r) = do
   addLT (r,l)
   addEQ (r,w)
   (root:_) <- liftBranch $ use branch
-  pushAndCont weak aLw >>= return . Tree.paraWeak root (aLp,aLw) (p,w)
+  anLw <- branchM $ pushAndCont weak aLw
+  return $ Tree.paraWeak aLp (Atom False $ PEq p w, Tree.Leaf) anLw
 
 weak :: M Tree.Node
 weak = withCtx "weak" $ do
@@ -300,12 +307,12 @@ weak = withCtx "weak" $ do
     -- S || \Gamma,!P[r],\Delta,P[s]
     -- S || \Gamma,P[r],\Delta,!P[s]
     case path of {
-      (aPs@(DNF.Atom x1 (PCustom n1 s)):t) -> join $ anyM [mapM addEQ (zip r s) >> return (Tree.predWeak aPs) | DNF.Atom x2 (PCustom n2 r) <- t, x1/=x2, n1 == n2];
+      (aPs@(DNF.Atom x1 (PCustom n1 s)):t) -> join $ anyM [mapM addEQ (zip r s) >> return Tree.predWeak | DNF.Atom x2 (PCustom n2 r) <- t, x1/=x2, n1 == n2];
       --TODO: is this necessary?
       (aPs@(DNF.Atom x1 (PEq l r)):t) -> join $ anyM [do {
           (l',r') <- applySymmAxiom (l,r);
           mapM addEQ (zip [l2,r2] [l',r']);
-          return (Tree.predWeak aPs)
+          return Tree.predWeak
         } | DNF.Atom x2 (PEq l2 r2) <- t, x1/=x2];
       _ -> throw
     }]
