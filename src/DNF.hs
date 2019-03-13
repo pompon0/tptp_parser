@@ -131,17 +131,27 @@ appendEqAxioms f = let {
     symmAxiom = OrClause [neq 0 1, eq 1 0];
     transAxiom = OrClause [neq 0 1, neq 1 2, eq 0 2];
     congPred :: (PredName,Int) -> NotAndForm;
-    congPred (n,c) = let { -- A 0..c  $0=$i and p($1..$c) => p($1..$0..$c)
+    {-congPred (n,c) = let { -- A 0..c  $0=$i and p($1..$c) => p($1..$0..$c)
       pred :: [Int] -> Pred;
       pred l = PCustom n (map (TVar . fromIntegral) l);
       x :: [Int] = [1..c];
-    } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom True (pred $ replace [v] [0] x), Atom False (pred x)]) x;
+    } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom True (pred $ replace [v] [0] x), Atom False (pred x)]) x;-}
+    congPred (n,c) = let {
+      pred :: [Int] -> Pred;
+      pred l = PCustom n (map (TVar . fromIntegral) l);
+      (x,y) = ([0..c-1],[c..2*c-1]);
+    } in NotAndForm $ [OrClause $ map (\(a,b) -> neq a b) (zip x y) <> [Atom False (pred x), Atom True (pred y)]];
     congFun :: (FunName,Int) -> NotAndForm;
-    congFun (n,c) = let { -- A 0..c  $0=$i => f($1..$c)=f($1..$0..$c)
+    {-congFun (n,c) = let { -- A 0..c  $0=$i => f($1..$c)=f($1..$0..$c)
       term :: [Int] -> Term;
       term l = TFun n (map (TVar . fromIntegral) l);
       x :: [Int] = [1..c];
-    } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom True (PEq (term $ replace [v] [0] x) (term x))]) x;
+    } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom True (PEq (term $ replace [v] [0] x) (term x))]) x;-}
+    congFun (n,c) = let {
+      term :: [Int] -> Term;
+      term l = TFun n (map (TVar . fromIntegral) l);
+      (x,y) = ([0..c-1],[c..2*c-1]);
+    } in NotAndForm $ [OrClause $ map (\(a,b) -> neq a b) (zip x y) <> [Atom True (PEq (term x) (term y))]];
     congPredClauses :: NotAndForm = mconcat $ map congPred $ unique $ f^..orForm'pred.pred'arity;
     congFunClauses :: NotAndForm = mconcat $ map congFun $ unique $ f^..orForm'term.term'subterm.term'arity;
   } in f <> toOrForm (NotAndForm [reflAxiom,symmAxiom,transAxiom] <> congPredClauses <> congFunClauses)
