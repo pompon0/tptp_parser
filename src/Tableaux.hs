@@ -201,7 +201,7 @@ prove form nodesLimit = do
     Left () -> return (Nothing,searchState)
     Right ((proofTree,bs),s) -> do
       printE proofTree
-      return (Just $ OrForm $ s^.usedClauses & traverse.andClause'term %~ eval (s^.mguState), searchState)
+      return (Just $ OrForm $ s^.usedClauses & traverse.andClause'term %~ terminate . eval (s^.mguState), searchState)
 
 proveLoop :: OrForm -> Int -> IO (Maybe Proof)
 proveLoop f limit = let

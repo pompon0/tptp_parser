@@ -26,4 +26,4 @@ main = do
   let proof :: Proof.Proof = Proof.fromProto proofProto
   putStrLn ("problem = " ++ show problem)
   putStrLn ("proof = " ++ show proof)
-  Proof.check proof problem
+  Proof.check problem proof

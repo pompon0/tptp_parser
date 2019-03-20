@@ -110,8 +110,10 @@ allocNode = do
 anyClause :: M [Atom]
 anyClause = (liftTab $ use $ clauses.notAndForm'orClauses) >>= anyM >>= allocVars
 
-applySymmAxiom :: (Term,Term) -> M (Term,Term)
-applySymmAxiom (l,r) = join $ anyM [return (l,r), return (r,l)]
+applySymmAxiom :: (Term,Term) -> ((Term,Term) -> M Tree.Node) -> M Tree.Node
+applySymmAxiom (l,r) cont = join $ anyM [cont (l,r), do
+  n <- cont (r,l)
+  return $ snd $ Tree.symm (Atom False (PEq r l), n)]
 
 withCtx msg cont = cont
 --withCtx :: String -> M a -> M a
@@ -132,6 +134,7 @@ pushAndCont cont a = branch %= (a:) >> withCtx (show a) cont >>= return.((,) a)
 
 expand :: M Tree.Node
 expand = do
+  allocNode
   liftSearch $ totalNodeCount %= (+1)
   cla <- anyClause
   allButOne (pushAndCont weak) (pushAndCont strong) cla >>= return . Tree.expand
@@ -157,14 +160,17 @@ addLT lr = do
 
 --------------------------------
 
-lazyEq :: [Term] -> [Term] -> M [(Atom,Tree.Node)]
-lazyEq r s = do
+strongPred :: Atom -> Atom -> M Tree.Node
+strongPred a1 a2 = do
+  let r = a1^.atom'args
+  let s = a2^.atom'args
   v <- mapM (\_ -> allocVar) r
   mapM_ addEQ (zip v r)
   -- WARNING: zip will truncate the longer list if lengths mismatch
   -- TODO: throw an error instead
   liftSearch $ totalNodeCount %= (+1)
-  (mapM (\(s',v') -> branchM $ pushAndCont weak (Atom False (PEq s' v'))) (zip s v))
+  ansr <- mapM (\(s',v') -> branchM $ pushAndCont weak (Atom False (PEq s' v'))) (zip s v)
+  return $ Tree.Node "strongPred" ((Tree.negAtom a1, Tree.Leaf):(Tree.negAtom a2, Tree.Leaf):ansr)
 
 data Swap s a = Swap { runSwap :: [(a,s)], runId :: [a] }
 
@@ -196,7 +202,10 @@ strongLEq aLp (l,r) = do
       liftSearch $ totalNodeCount %= (+1);
       anLw <- branchM $ pushAndCont weak aLw;
       anrw <- branchM $ pushAndCont weak $ Atom False $ PEq r w;
-      return $ Tree.paraStrong1 aLp (Atom False $ PEq p w, Tree.Leaf) anLw anrw;
+      let { anpz = (Atom False $ PEq p z, Tree.refl p) };
+      let { anzr = (Atom False $ PEq z r, Tree.Leaf) };
+      let { anpw = foldl1 Tree.trans [anpz,anzr,anrw] };
+      return $ Tree.atomCong aLp anLw anpw;
     }
     fs@(TFun f s) -> do {
       v <- mapM (\_ -> allocVar) s;
@@ -207,7 +216,11 @@ strongLEq aLp (l,r) = do
       anLw <- branchM $ pushAndCont weak aLw;
       anrw <- branchM $ pushAndCont weak $ Atom False $ PEq r w;
       ansv <- mapM (\(x,y) -> branchM $ pushAndCont weak $ Atom False $ PEq x y) (zip s v);
-      return $ Tree.paraStrong2 aLp f (Atom False $ PEq fs r, Tree.Leaf) anLw anrw ansv;
+      let { anpfv = (Atom False $ PEq p fv, Tree.refl p) };
+      let { anfvfs = Tree.symm (Tree.cong f ansv) };
+      let { anfsr = (Atom False $ PEq fs r, Tree.Leaf) };
+      let { anpw = foldl1 Tree.trans [anpfv,anfvfs,anfsr,anrw] };
+      return $ Tree.atomCong aLp anLw anpw;
     }
 
 -- S || \Gamma, l~r, L[f(s)]
@@ -226,7 +239,12 @@ strongEqL (l,r) aLp = do
       liftSearch $ totalNodeCount %= (+1);
       anLw <- branchM $ pushAndCont weak aLw;
       ansv <- mapM (\(x,y) -> branchM $ pushAndCont weak $ Atom False $ PEq x y) (zip s v);
-      return $ Tree.paraStrong3 aLp f (Atom False $ PEq fv w, Tree.Leaf) anLw ansv;
+      let { anpfv = Tree.cong f ansv };
+      let { anfvl = (Atom False $ PEq fv l, Tree.refl fv) };
+      let { anlr = (Atom False $ PEq l r, Tree.Leaf) };
+      let { anrw = (Atom False $ PEq r w, Tree.refl r) };
+      let { anpw = foldl1 Tree.trans [anpfv,anfvl,anlr,anrw] };
+      return $ Tree.atomCong aLp anLw anpw;
     }
     _ -> throw
 
@@ -242,28 +260,23 @@ strong = withCtx "strong" $ do
       (case (a,b) of
         -- S || \Gamma,!P[r],P[s]
         -- S || \Gamma,P[r],!P[s]
-        (a1@(Atom x1 (PCustom n1 r)), a2@(Atom x2 (PCustom n2 s))) | x1/=x2, n1 == n2 -> do
-          --axiomCongPred (p1,p2)
-          lazyEq r s >>= return . Tree.predStrong a1 a2
+        (a1@(Atom x1 (PCustom n1 r)), a2@(Atom x2 (PCustom n2 s))) | x1/=x2, n1 == n2 -> strongPred a1 a2
         _ -> throw),
-      --(case (a,b) of
+      (case (a,b) of
         -- not sure if non-paramodulation strong step for equality predicate is needed
         -- TODO: verify that against the proof
         -- TODO: verify if swapping r* with s* is needed
-        --(Atom x1 p1@(PEq r1 r2), Atom x2 (PEq s1 s2)) | x1/=x2 -> do {
-        --    (s1',s2') <- applySymmAxiom (s1,s2);
-        --    axiomCongPred (p1,PEq s1' s2');
-        --    lazyEq [r1,r2] [s1',s2'];
-        --  }
-      --  _ -> throw),
+        (a1@(Atom x1 (PEq r1 r2)), a2@(Atom x2 (PEq s1 s2))) | x1/=x2 ->
+          applySymmAxiom (r1,r2) (\(r1,r2) -> strongPred (Atom x1 (PEq r1 r2)) a2)
+        _ -> throw),
       (case (a,b) of
         -- S || \Gamma, L[p], z~r
         -- S || \Gamma, L[p], f(s)~r
-        (Atom True (PEq l r), aLp) -> applySymmAxiom (l,r) >>= strongLEq aLp
+        (a1@(Atom True (PEq l r)), aLp) -> applySymmAxiom (l,r) (strongLEq aLp)
         _ -> throw),
       (case (a,b) of
         -- S || \Gamma, l~r, L[f(s)]
-        (aLp, Atom True (PEq l r)) -> applySymmAxiom (l,r) >>= (\lr -> strongEqL lr aLp)
+        (aLp, a2@(Atom True (PEq l r))) -> applySymmAxiom (l,r) (\lr -> strongEqL lr aLp)
         _ -> throw)]
 
 weakLEq :: Atom -> (Term,Term) -> M Tree.Node
@@ -276,11 +289,14 @@ weakLEq aLp (l,r) = do
   addEQ (r,w)
   (root:_) <- liftBranch $ use branch
   anLw <- branchM $ pushAndCont weak aLw
-  return $ Tree.paraWeak aLp (Atom False $ PEq p w, Tree.Leaf) anLw
+  let { anpl = (Atom False $ PEq p l, Tree.refl p) }
+  let { anlr = (Atom False $ PEq l r, Tree.Leaf) }
+  let { anrw = (Atom False $ PEq r w, Tree.refl p) }
+  let { anpw = foldl1 Tree.trans [anpl,anlr,anrw] }
+  return $ Tree.atomCong aLp anLw anpw
 
 weak :: M Tree.Node
 weak = withCtx "weak" $ do
-  allocNode
   path <- use branch
   join $ anyM [
     -- S || \Gamma, s!~t
@@ -288,19 +304,18 @@ weak = withCtx "weak" $ do
     expand,
     -- S || \Gamma L[p],\Delta,l~r
     case path of {
-      (DNF.Atom True (PEq l r):t) -> join $ anyM [applySymmAxiom (l,r) >>= weakLEq aLp | aLp <- t]; _ -> throw },
+      (Atom True (PEq l r):t) -> join $ anyM [allocNode >> applySymmAxiom (l,r) (weakLEq aLp) | aLp <- t]; _ -> throw },
     -- S || \Gamma l~r,\Delta,L[p]
-    case path of { (aLp:t) -> join $ anyM [applySymmAxiom (l,r) >>= weakLEq aLp | DNF.Atom True (PEq l r) <- t]; _ -> throw },
+    case path of { (aLp:t) -> join $ anyM [allocNode >> applySymmAxiom (l,r) (weakLEq aLp) | DNF.Atom True (PEq l r) <- t]; _ -> throw },
     -- S || \Gamma,!P[r],\Delta,P[s]
     -- S || \Gamma,P[r],\Delta,!P[s]
     case path of {
-      (aPs@(DNF.Atom x1 (PCustom n1 s)):t) -> join $ anyM [mapM addEQ (zip r s) >> return Tree.predWeak | DNF.Atom x2 (PCustom n2 r) <- t, x1/=x2, n1 == n2];
+      (aPs@(Atom x1 (PCustom n1 s)):t) -> join $ anyM [mapM addEQ (zip r s) >> return Tree.predWeak | DNF.Atom x2 (PCustom n2 r) <- t, x1/=x2, n1 == n2];
       --TODO: is this necessary?
-      (aPs@(DNF.Atom x1 (PEq l r)):t) -> join $ anyM [do {
-          (l',r') <- applySymmAxiom (l,r);
-          mapM addEQ (zip [l2,r2] [l',r']);
+      (aPs@(Atom x1 (PEq l r)):t) -> join $ anyM [applySymmAxiom (l,r) $ \(l,r) -> do {
+          mapM addEQ (zip [l2,r2] [l,r]);
           return Tree.predWeak
-        } | DNF.Atom x2 (PEq l2 r2) <- t, x1/=x2];
+        } | Atom x2 (PEq l2 r2) <- t, x1/=x2];
       _ -> throw
     }]
 
@@ -324,9 +339,10 @@ prove form nodesLimit = do
   case res of
     Left () -> return (Nothing,searchState)
     Right ((proofTree,bs),s) -> do
-      let proofTree' = proofTree & Tree.node'deepAtom.atom'term %~ eval (s^.mguState)
+      let proofTree' = proofTree & Tree.node'deepAtom.atom'term %~ terminate . eval (s^.mguState)
       printE proofTree'
       let proof = toOrForm $ NotAndForm (proofTree'^..(Tree.node'proof))
+      --printE proof
       return (Just proof, searchState) 
 
 proveLoop :: OrForm -> Int -> IO (Maybe Proof.Proof)

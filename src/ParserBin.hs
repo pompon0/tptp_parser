@@ -25,11 +25,12 @@ main = do
   textProto <- getContents
   tptpFile <- assert $ TextFormat.readMessage (Text.pack textProto)
   print (Form.fromProto tptpFile)
-  form <- assert $ toDNF tptpFile
-  print form
-  mProof <- killable $ LazyParam.proveLoop form 100
+  problem <- assert $ toDNF tptpFile
+  print problem
+  mProof <- killable $ LazyParam.proveLoop problem 100
+  print mProof
   case mProof of
     Nothing -> error "proof not found"
     Just proof -> do
-      print proof
+      Proof.check problem proof
       --putStrLn (TextFormat.showMessage $ Proof.toProto proof)

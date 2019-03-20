@@ -30,7 +30,11 @@ term'subterm g t = g t *> pure t
 data SPred = SPred { _spred'name :: PredName, _spred'args :: [Term] }
 makeLenses ''SPred
 
+eqPredName :: PredName
 eqPredName = -1
+
+extraConstName :: FunName
+extraConstName = -1
 
 makeSPred :: Pred -> SPred
 makeSPred (PEq l r) = SPred eqPredName [l,r]
@@ -63,4 +67,9 @@ emptyValuation = Map.empty
 eval :: Valuation -> Term -> Term
 eval s t@(TVar vn) = case Map.lookup vn s of { Nothing -> t; Just t' -> eval s t' }
 eval s (TFun f args) = TFun f (map (eval s) args)
+
+terminate :: Term -> Term
+terminate (TVar _) = TFun extraConstName []
+terminate (TFun f args) = TFun f (map terminate args)
+
 

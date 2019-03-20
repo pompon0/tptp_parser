@@ -2,16 +2,18 @@ module TptpSampleData where
 
 problems = [
   ("simple",simple),
-  ("eqAxiom",eqAxiom),
+  ("eqAxiom1",eqAxiom1),
   ("eqAxiom2",eqAxiom2),
+  ("eqAxiom3",eqAxiom3),
   ("barber",barber),
   ("pelletier20",pelletier20),
   ("pelletier24",pelletier24)]
 
 simple = "fof(simple, conjecture, (?[X]:(![Y]: (p(X) => p(Y)))))."
 
-eqAxiom = "fof(eqAxiom, conjecture, ((a1=a2) & (b1=b2) & (c1=c2)) => (f(a1,b1,c1)=f(a2,b2,c2)))."
+eqAxiom1 = "fof(eqAxiom1, conjecture, ((a1=a2) & (b1=b2) & (c1=c2)) => (f(a1,b1,c1)=f(a2,b2,c2)))."
 eqAxiom2 = "fof(eqAxiom2, conjecture, (a1=a2) => (f(a1,b1,c1)=f(a2,b1,c1)))."
+eqAxiom3 = "fof(eqAxiom3, conjecture, ((a=b) & (b=c) & (c=d)) => (a=d))."
 
 barber = "fof(simple, conjecture, ~(?[B]:(![X]:(shaves(B,X) <=> ~shaves(X,X)))))."
 

@@ -6,14 +6,15 @@ import Control.Exception(evaluate)
 import Lib
 
 import qualified DNF
-import ConvBin(pullInteresting)
+import ConvBin(pullInteresting,pullSimple)
 import ParserBin(toDNF)
-import LazyParam(proveLoop) 
+import qualified Tableaux
+import qualified LazyParam
 import Proof(check)
 
 proveAndCheck :: (String, DNF.OrForm) -> (String, IO String)
 proveAndCheck (name, problem) = (,) name $ do
-  mProof <- proveLoop problem 100
+  mProof <- Tableaux.proveLoop problem 100
   case mProof of
     Nothing -> return "proof not found"
     Just proof -> do
@@ -23,7 +24,7 @@ proveAndCheck (name, problem) = (,) name $ do
 main = do
   --[tarPath] <- getArgs
   --forms <- readProtoTar tarPath >>= mapM (\(k,p) -> assert (toDNF p) >>= return . (,) k)
-  forms <- pullInteresting >>= mapM (\(k,p) -> assert (toDNF p) >>= return . (,) k)
-  let timeout_us = 20*1000000
+  forms <- pullSimple >>= mapM (\(k,p) -> assert (toDNF p) >>= return . (,) k)
+  let timeout_us = 40*1000000
   killable $ runInParallelWithTimeout timeout_us $ map proveAndCheck forms
   return ()
