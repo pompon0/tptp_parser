@@ -115,15 +115,17 @@ orForm'term :: Traversal' OrForm Term
 orForm'term = orForm'pred.pred'spred.spred'args.traverse
 
 pred'arity :: Fold Pred (PredName,Int)
-pred'arity g p@(PCustom pn args) = g (pn,length args) *> pure p
-pred'arity g p = pure p
+pred'arity g p = case unwrap p of
+  PCustom pn args -> g (pn,length args) *> pure p
+  _ -> pure p
 
 term'arity :: Fold Term (FunName,Int)
-term'arity g t@(TFun fn args) = g (fn,length args) *> pure t
-term'arity g t = pure t
+term'arity g t = case unwrap t of
+  TFun fn args -> g (fn,length args) *> pure t
+  _ -> pure t
 
-eq l r = Atom True (PEq (TVar $ fromIntegral l) (TVar $ fromIntegral r));
-neq l r = Atom False (PEq (TVar $ fromIntegral l) (TVar $ fromIntegral r));
+eq l r = Atom True (wrap $ PEq (wrap $ TVar $ fromIntegral l) (wrap $ TVar $ fromIntegral r));
+neq l r = Atom False (wrap $ PEq (wrap $ TVar $ fromIntegral l) (wrap $ TVar $ fromIntegral r));
 
 appendEqAxioms :: OrForm -> OrForm
 appendEqAxioms f = let {
@@ -138,7 +140,7 @@ appendEqAxioms f = let {
     } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom True (pred $ replace [v] [0] x), Atom False (pred x)]) x;-}
     congPred (n,c) = let {
       pred :: [Int] -> Pred;
-      pred l = PCustom n (map (TVar . fromIntegral) l);
+      pred l = wrap $ PCustom n (map (wrap . TVar . fromIntegral) l);
       (x,y) = ([0..c-1],[c..2*c-1]);
     } in NotAndForm $ [OrClause $ map (\(a,b) -> neq a b) (zip x y) <> [Atom False (pred x), Atom True (pred y)]];
     congFun :: (FunName,Int) -> NotAndForm;
@@ -149,9 +151,9 @@ appendEqAxioms f = let {
     } in NotAndForm $ map (\v -> OrClause [neq 0 v, Atom True (PEq (term $ replace [v] [0] x) (term x))]) x;-}
     congFun (n,c) = let {
       term :: [Int] -> Term;
-      term l = TFun n (map (TVar . fromIntegral) l);
+      term l = wrap $ TFun n (map (wrap . TVar . fromIntegral) l);
       (x,y) = ([0..c-1],[c..2*c-1]);
-    } in NotAndForm $ [OrClause $ map (\(a,b) -> neq a b) (zip x y) <> [Atom True (PEq (term x) (term y))]];
+    } in NotAndForm $ [OrClause $ map (\(a,b) -> neq a b) (zip x y) <> [Atom True (wrap $ PEq (term x) (term y))]];
     congPredClauses :: NotAndForm = mconcat $ map congPred $ unique $ f^..orForm'pred.pred'arity;
     congFunClauses :: NotAndForm = mconcat $ map congFun $ unique $ f^..orForm'term.term'subterm.term'arity;
   } in f <> toOrForm (NotAndForm [reflAxiom,symmAxiom,transAxiom] <> congPredClauses <> congFunClauses)
@@ -160,24 +162,32 @@ isEqAxiom :: AndClause -> Bool
 isEqAxiom c = isReflAxiom c || isSymmAxiom c || isTransAxiom c || isPredCongAxiom c || isFunCongAxiom c
 
 isReflAxiom c = case c of
-  AndClause [Atom False (PEq a b)] -> a==b
+  AndClause [Atom False p] -> case unwrap p of
+    PEq a b -> a==b
+    _ -> False
   _ -> False
 
 isSymmAxiom c = case c of
-  AndClause [Atom s (PEq a b), Atom s' (PEq b' a')] -> s/=s' && a==a' && b==b'
+  AndClause [Atom s p, Atom s' p'] -> case (unwrap p, unwrap p') of
+    (PEq a b, PEq b' a') -> s/=s' && a==a' && b==b'
+    _ -> False
   _ -> False
 
 isTransAxiom c = case (c^..negPred,c^..posPred.pred'pcustom) of
-  ([PEq a1 a2],[]) -> any (\(l,(b1,b2),r) -> isSubRelation [(a1,b1),(a2,b2)] (l<>r)) $ select $ c^..posPred.pred'peq
+  ([p],[]) -> case unwrap p of 
+    PEq a1 a2 -> any (\(l,(b1,b2),r) -> isSubRelation [(a1,b1),(a2,b2)] (l<>r)) $ select $ c^..posPred.pred'peq
+    _ -> False
   _ -> False
 
 pred'peq :: Traversal' Pred (Term,Term)
-pred'peq f (PEq x y) = pure (\(x',y') -> PEq x' y') <*> f (x,y)
-pred'peq f p = pure p
+pred'peq f p = case unwrap p of
+  PEq x y -> pure (\(x',y') -> wrap $ PEq x' y') <*> f (x,y)
+  _ -> pure p
 
 pred'pcustom :: Traversal' Pred (PredName,[Term])
-pred'pcustom f (PCustom pn args) = pure (\(pn',args') -> PCustom pn' args') <*> f (pn,args)
-pred'pcustom f p = pure p
+pred'pcustom f p = case unwrap p of
+  PCustom pn args -> pure (\(pn',args') -> wrap $ PCustom pn' args') <*> f (pn,args)
+  _ -> pure p
 
 posPred :: Fold AndClause Pred
 posPred = andClause'atoms.traverse.filtered (^.atom'sign).atom'pred
@@ -191,9 +201,15 @@ isSubRelation a b =
   in Set.isSubsetOf (norm a) (norm b)
 
 isPredCongAxiom c = case (c^..negPred, c^..posPred.pred'pcustom) of
-  ([PCustom pn a], [(pn',a')]) -> pn==pn' && isSubRelation (zip a a') (c^..posPred.pred'peq) 
+  ([p], [(pn',a')]) -> case unwrap p of
+    PCustom pn a -> pn==pn' && isSubRelation (zip a a') (c^..posPred.pred'peq) 
+    _ -> False
   _ -> False
 
 isFunCongAxiom c = case (c^..negPred, c^..posPred.pred'pcustom) of
-  ([PEq (TFun fn a) (TFun fn' a')], []) -> fn==fn' && isSubRelation (zip a a') (c^..posPred.pred'peq) 
+  ([p], []) -> case unwrap p of
+    PEq t t' -> case (unwrap t, unwrap t') of
+      (TFun fn a, TFun fn' a') -> fn==fn' && isSubRelation (zip a a') (c^..posPred.pred'peq) 
+      _ -> False
+    _ -> False
   _ -> False

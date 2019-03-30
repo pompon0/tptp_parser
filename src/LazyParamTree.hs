@@ -41,37 +41,30 @@ expand = Node "expand"
 
 --TODO: add eq axiom check
 refl :: Term -> Node
-refl s = Node "refl" [(Atom True $ PEq s s, Leaf)]
+refl s = Node "refl" [(Atom True $ wrap $ PEq s s, Leaf)]
 
 trans :: (Atom,Node) -> (Atom,Node) -> (Atom,Node)
 trans (axy,nxy) (ayz,nyz) = case (axy,ayz) of
-  (Atom False (PEq x y), Atom False (PEq y' z)) | y==y' ->
-    let axz = Atom False (PEq x z) in (axz, Node "trans" [(axy,nxy),(ayz,nyz),(negAtom axz,Leaf)])
+  (Atom False p, Atom False p') -> case (unwrap p, unwrap p') of
+    (PEq x y, PEq y' z) | y==y' -> let axz = Atom False (wrap $ PEq x z) in (axz, Node "trans" [(axy,nxy),(ayz,nyz),(negAtom axz,Leaf)])
+    _ -> error $ "trans(" <> show axy <> ", " <> show ayz <> ")"
   _ -> error $ "trans(" <> show axy <> ", " <> show ayz <> ")"
 
 cong :: FunName -> [(Atom,Node)] -> (Atom,Node)
 cong f anxy = let
-  (lx,ly) = unzip $ map (\(Atom False (PEq x y), _) -> (x,y)) anxy
-  afxfy = Atom False $ PEq (TFun f lx) (TFun f ly)
+  (lx,ly) = unzip $ map (\(Atom False p, _) -> case unwrap p of { PEq x y -> (x,y); _ -> error "cong"}) anxy
+  afxfy = Atom False $ wrap $ PEq (wrap $ TFun f lx) (wrap $ TFun f ly)
   in (afxfy, Node "conj" ((negAtom afxfy,Leaf):anxy))
 
 symm :: (Atom,Node) -> (Atom,Node)
 symm (axy,nxy) = let
-  (Atom False (PEq x y)) = axy
-  ayx = Atom False $ PEq y x
+  (x,y) = case axy of { Atom False p -> case unwrap p of { PEq x y -> (x,y); _ -> error "symm" }; _ -> error "symm" }
+  ayx = Atom False $ wrap $ PEq y x
   in (ayx, Node "symm" [(axy,nxy),(negAtom ayx,Leaf)])
 
 
---TODO: add eq axiom check
-predStrong :: Atom -> Atom -> [(Atom,Node)] -> Node
-predStrong aPr aPs sr = --traceShow ("predStrong",aPr,aPs,sr) $
-  Node "predStrong" ((negAtom aPr, Leaf):(negAtom aPs, Leaf):sr)
-
 predWeak :: Node 
 predWeak = Leaf
-
-paraWeak :: Atom -> (Atom,Node) -> (Atom,Node) -> Node
-paraWeak aLp anpw anLw = traceShow (aLp,anpw,anLw) $ atomCong aLp anLw anpw
 
 atomCong :: Atom -> (Atom,Node) -> (Atom,Node) -> Node
 atomCong aLx (aLy,nLy) (axy,nxy) = -- traceShow ("atomCong",aLx,aLy,nLy,axy,nxy) $
@@ -83,10 +76,10 @@ atomCong aLx (aLy,nLy) (axy,nxy) = -- traceShow ("atomCong",aLx,aLy,nLy,axy,nxy)
 
 termCong :: (Term,Term) -> (Atom,Node) -> (Atom,Node)
 termCong (tx,ty) (axy,nxy) = --traceShow ("termCong",tx,ty,axy,nxy) $
-  if axy == (Atom False $ PEq tx ty) then (axy,nxy) else
-  case (tx,ty) of {
+  if axy == (Atom False $ wrap $ PEq tx ty) then (axy,nxy) else
+  case (unwrap tx, unwrap ty) of {
     (TFun fx ax, TFun fy ay) | fx==fy -> case filter (\(tx,ty) -> tx/=ty) $ zip ax ay of {
-      [txy'] -> (Atom False $ PEq tx ty, Node "termCong" [(Atom True $ PEq tx ty, Leaf), termCong txy' (axy,nxy)]);
+      [txy'] -> (Atom False $ wrap $ PEq tx ty, Node "termCong" [(Atom True $ wrap $ PEq tx ty, Leaf), termCong txy' (axy,nxy)]);
       _ -> error "length diff/=1";
     };
     _ -> error $ "termCong " <> show tx <> " ~ " <> show ty <> " :: " <> show axy;

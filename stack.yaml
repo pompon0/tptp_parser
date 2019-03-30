@@ -34,10 +34,14 @@ resolver: lts-13.0
 #  - wai
 packages:
 - .
+
 # Dependency packages to be pulled from upstream that are not in the resolver
 # using the same syntax as the packages field.
 # (e.g., acme-missiles-0.3)
-extra-deps: ["set-monad-0.3.0.0@sha256:4b6e63bf9aa80b0d64c078ce17aaf12b17f89cba581a98fdaa98efc824f93450"]
+extra-deps:
+  - "set-monad-0.3.0.0@sha256:4b6e63bf9aa80b0d64c078ce17aaf12b17f89cba581a98fdaa98efc824f93450"
+  - github: andy-morris/hashcons
+    commit: a1a8f0ffa287cb3ca547e44aff0d6c65cd3574ec
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

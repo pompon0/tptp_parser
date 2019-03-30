@@ -39,6 +39,8 @@ dependencies:
 - split
 - data-ordlist
 - clock
+- hashcons
+- hashable
 
 ghc-options: -O2 -Wincomplete-patterns -Werror -fbreak-on-error
 

@@ -1,31 +1,54 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 module Pred where
 
+import Control.Monad.IO.Class(MonadIO,liftIO)
 import Lib
 import Control.Lens(makeLenses,Traversal,Traversal',Fold,Lens,Lens',Iso',dimap)
 import qualified Data.Map as Map
+import Data.HashCons(HC,hc,getVal,HashCons,Hashable)
+import Data.HashCons.Memo()
+import GHC.Generics(Generic)
 
-data Term = TVar VarName | TFun FunName [Term] deriving(Eq,Ord)
-data Pred = PEq Term Term | PCustom PredName [Term]
+data Term' = TVar VarName | TFun FunName [Term]
+  deriving stock (Eq, Generic, Ord)
+  deriving anyclass (Hashable, HashCons)
+data Pred' = PEq Term Term | PCustom PredName [Term]
+  deriving stock (Eq, Generic, Ord)
+  deriving anyclass (Hashable, HashCons)
+type Term = HC Term'
+type Pred = HC Pred'
+
+wrap :: HashCons a => a -> HC a
+wrap = hc
+unwrap :: HashCons a => HC a -> a
+unwrap = getVal
 
 sort a b = if a<b then [a,b] else [b,a]
 conv (PEq a b) = (0,0,sort a b)
 conv (PCustom n a) = (1,n,a)
 
-instance Eq Pred where
-  (==) a b = conv a == conv b
-instance Ord Pred where
-  (<=) a b = conv a <= conv b
+--instance Eq Pred where
+--  (==) a b = conv a == conv b
+--instance Ord Pred where
+--  (<=) a b = conv a <= conv b
+
+--type TraversalIO s t a b = forall f. MonadIO f => (a -> f b) -> (s -> f t)
 
 term'subst :: Traversal Term Term VarName Term
-term'subst g (TVar vn) = g vn
-term'subst g (TFun fn args) = pure (TFun fn) <*> (traverse.term'subst) g args
+term'subst g t = case getVal t of
+  TVar vn -> g vn
+  TFun fn args -> pure hc <*> (pure (TFun fn) <*> (traverse.term'subst) g args)
 
 term'subterm :: Fold Term Term
-term'subterm g t@(TFun fn args) = (traverse.term'subterm) g args *> g t *> pure t
-term'subterm g t = g t *> pure t
+term'subterm g t = case getVal t of
+  (TFun fn args) -> (traverse.term'subterm) g args *> g t *> pure t
+  _ -> g t *> pure t
 
 data SPred = SPred { _spred'name :: PredName, _spred'args :: [Term] }
 makeLenses ''SPred
@@ -37,24 +60,27 @@ extraConstName :: FunName
 extraConstName = -1
 
 makeSPred :: Pred -> SPred
-makeSPred (PEq l r) = SPred eqPredName [l,r]
-makeSPred (PCustom pn args) = SPred pn args
+makeSPred p = case getVal p of
+  (PEq l r) -> SPred eqPredName [l,r]
+  (PCustom pn args) -> SPred pn args
 
 makePred :: SPred -> Pred
 makePred (SPred pn args) = case args of
-  [l,r] | pn == eqPredName -> PEq l r
-  _ -> PCustom pn args 
+  [l,r] | pn == eqPredName -> hc $ PEq l r
+  _ -> hc $ PCustom pn args 
 
 pred'spred :: Iso' Pred SPred
 pred'spred = dimap makeSPred (fmap makePred)
 
-instance Show Pred where
-  show (PEq l r) = "eq(" ++ sepList [l,r] ++ ")"
-  show (PCustom n x) = show n ++ "(" ++ sepList x ++ ")"
+instance Show Pred' where
+  show p = case p of
+    (PEq l r) -> "eq(" ++ sepList [l,r] ++ ")"
+    (PCustom n x) -> show n ++ "(" ++ sepList x ++ ")"
 
-instance Show Term where
-  show (TVar n) = show n
-  show (TFun n x) = show n ++ "(" ++ sepList x ++ ")"
+instance Show Term' where
+  show t = case t of
+    (TVar n) -> show n
+    (TFun n x) -> show n ++ "(" ++ sepList x ++ ")"
 
 ----------------------------------------------------
 
@@ -65,11 +91,14 @@ emptyValuation = Map.empty
 
 -- function T[V] -> T[FV], represented by the valuation
 eval :: Valuation -> Term -> Term
-eval s t@(TVar vn) = case Map.lookup vn s of { Nothing -> t; Just t' -> eval s t' }
-eval s (TFun f args) = TFun f (map (eval s) args)
+eval s t = case getVal t of
+  (TVar vn) -> case Map.lookup vn s of { Nothing -> t; Just t' -> eval s t' }
+  (TFun f args) -> hc $ TFun f (map (eval s) args)
 
+-- TODO: rename to ground
 terminate :: Term -> Term
-terminate (TVar _) = TFun extraConstName []
-terminate (TFun f args) = TFun f (map terminate args)
+terminate t = case getVal t of
+  (TVar _) -> hc $ TFun extraConstName []
+  (TFun f args) -> hc $ TFun f (map terminate args)
 
 

@@ -14,7 +14,7 @@ import Proof(check)
 
 proveAndCheck :: (String, DNF.OrForm) -> (String, IO String)
 proveAndCheck (name, problem) = (,) name $ do
-  mProof <- Tableaux.proveLoop problem 100
+  mProof <- LazyParam.proveLoop problem 100
   case mProof of
     Nothing -> return "proof not found"
     Just proof -> do
@@ -24,7 +24,7 @@ proveAndCheck (name, problem) = (,) name $ do
 main = do
   --[tarPath] <- getArgs
   --forms <- readProtoTar tarPath >>= mapM (\(k,p) -> assert (toDNF p) >>= return . (,) k)
-  forms <- pullSimple >>= mapM (\(k,p) -> assert (toDNF p) >>= return . (,) k)
-  let timeout_us = 40*1000000
+  forms <- pullInteresting >>= mapM (\(k,p) -> assert (toDNF p) >>= return . (,) k)
+  let timeout_us = 2*1000000
   killable $ runInParallelWithTimeout timeout_us $ map proveAndCheck forms
   return ()

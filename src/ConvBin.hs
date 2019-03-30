@@ -97,7 +97,10 @@ pullInteresting = pullProtoTar >>= filterM (interesting.snd)
 
 pullSimple = pullInteresting >>= filterM (return.(`elem` simpleCases).fst)
 
-main = pullInteresting >>= saveProtoTar
+main = killable $ do
+  problems <- pullInteresting
+  printE "problems pulled"
+  saveProtoTar problems
 
 simpleCases = [
   "f/t9_ordinal1",

@@ -150,15 +150,15 @@ push t ma = do
 skolF :: F.Form -> M Form
 skolF f = case f of
   F.Forall x -> do
-    let isVar t = case t of { TVar _->True; _-> False }
+    let isVar t = case unwrap t of { TVar _->True; _-> False }
     n <- use nextFunName
     nextFunName %= (+1)
     st <- use varStack
-    push (TFun n (filter isVar st)) (skolF x)
+    push (wrap $ TFun n (filter isVar st)) (skolF x)
   F.Exists x -> do
     nv <- use nextVar
     nextVar %= (+1)
-    push (TVar nv) (skolF x)
+    push (wrap $ TVar nv) (skolF x)
   F.Or x -> mapM skolF x >>= return .Or
   F.And x -> mapM skolF x >>= return . And
   F.PosAtom p -> skolP p >>= return . PosAtom
@@ -167,8 +167,8 @@ skolP p = case p of
   F.PEq l r -> do
     sl <- skolT l
     sr <- skolT r
-    return (PEq sl sr)
-  F.PCustom name args -> mapM skolT args >>= return . PCustom name
+    return (wrap $ PEq sl sr)
+  F.PCustom name args -> mapM skolT args >>= return . wrap . PCustom name
 skolT t = case t of
   F.TVar ref -> do
     mt <- use (varStack.ix ref)
@@ -178,5 +178,5 @@ skolT t = case t of
   F.TFun name args -> do
     n <- lookupFunName name
     a <- mapM skolT args
-    return (TFun n a)
+    return (wrap $ TFun n a)
 

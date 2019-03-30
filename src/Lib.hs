@@ -11,6 +11,7 @@ import Control.Monad(join)
 
 import Data.Monoid(Endo(..))
 import Data.Functor.Const(Const(..))
+import Data.Hashable(Hashable)
 
 import qualified Data.ProtoLens.TextFormat as TextFormat
 import Data.ProtoLens.Message(Message)
@@ -27,9 +28,9 @@ import qualified Control.Concurrent.Timeout as Timeout
 
 import qualified System.Clock as Clock
 
-newtype FunName = FunName Int deriving (Eq,Num,Ord,Integral,Real,Enum)
-newtype PredName = PredName Int deriving(Eq,Num,Ord,Integral,Real,Enum)
-newtype VarName = VarName Int deriving (Eq,Num,Ord,Integral,Real,Enum)
+newtype FunName = FunName Int deriving (Eq,Num,Ord,Integral,Real,Enum,Hashable)
+newtype PredName = PredName Int deriving(Eq,Num,Ord,Integral,Real,Enum,Hashable)
+newtype VarName = VarName Int deriving (Eq,Num,Ord,Integral,Real,Enum,Hashable)
 instance Show FunName where { show (FunName n) = "f" ++ show n }
 instance Show PredName where { show (PredName n) = "p" ++ show n }
 instance Show VarName where { show (VarName n) = "v" ++ show n }

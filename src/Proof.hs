@@ -25,7 +25,7 @@ type Proof = OrForm
 -----------------------------------------------------
 
 val'lookup :: Valuation -> VarName -> Term
-val'lookup val vn = case Map.lookup vn val of { Just t -> t; Nothing -> TVar vn }
+val'lookup val vn = case Map.lookup vn val of { Just t -> t; Nothing -> wrap $ TVar vn }
 
 andClause'subst :: Traversal AndClause AndClause VarName Term
 andClause'subst = andClause'atoms.traverse.atom'pred.pred'spred.spred'args.traverse.term'subst
@@ -56,13 +56,14 @@ check problem proof =  do
 -----------------------------------------------------
 
 _Term'toProto :: Term -> P.Term
-_Term'toProto (TVar vn) = defMessage
-  & #type' .~ P.Term'VAR
-  & #name .~ fromIntegral vn
-_Term'toProto (TFun fn args) = defMessage
-  & #type' .~ P.Term'EXP
-  & #name .~ fromIntegral fn
-  & #args .~ map _Term'toProto args
+_Term'toProto t = case unwrap t of
+  TVar vn -> defMessage
+    & #type' .~ P.Term'VAR
+    & #name .~ fromIntegral vn
+  TFun fn args -> defMessage
+    & #type' .~ P.Term'EXP
+    & #name .~ fromIntegral fn
+    & #args .~ map _Term'toProto args
 
 _Atom'toProto :: Atom -> P.Atom
 _Atom'toProto atom = defMessage
@@ -85,8 +86,8 @@ toProto proof = defMessage
 
 _Term'fromProto :: P.Term -> Term
 _Term'fromProto term = case term^. #type' of
-  P.Term'VAR -> TVar (fromIntegral $ term^. #name)
-  P.Term'EXP -> TFun (fromIntegral $ term^. #name) (map _Term'fromProto $ term^. #args)
+  P.Term'VAR -> wrap $ TVar (fromIntegral $ term^. #name)
+  P.Term'EXP -> wrap $ TFun (fromIntegral $ term^. #name) (map _Term'fromProto $ term^. #args)
   _ -> error "unknown term type"
 
 _Atom'fromProto ::  P.Atom -> Atom

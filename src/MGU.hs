@@ -23,10 +23,11 @@ assign xn t = do
   s <- get
   let {
     -- TODO: we can even do free vars caching, instead of traversal
-    has (TVar vn) = case Map.lookup vn s of { Nothing -> vn==xn; Just t -> has t };
-    has (TFun _ args) = any has args;
+    has t = case unwrap t of
+      TVar vn -> case Map.lookup vn s of { Nothing -> vn==xn; Just t -> has t };
+      TFun _ args -> any has args;
   }
-  case t of {
+  case unwrap t of {
     -- break on trivial assignment
     TVar vn | vn==xn -> return ();
     -- traverse TVar assignments
@@ -44,7 +45,7 @@ runMGU lr s = case ExceptM.runExcept (StateM.runStateT (mgu lr) s) of
   Right (_,s) -> Just s
 
 mgu :: (Term,Term) -> M ()
-mgu (x,y) = case (x,y) of
+mgu (x,y) = case (unwrap x, unwrap y) of
     (TFun f1 a1, TFun f2 a2) | f1 == f2 -> mapM_ mgu (zip a1 a2)
     -- TODO: you can implement path compression here
     (TFun _ _, TVar _) -> mgu (y,x)

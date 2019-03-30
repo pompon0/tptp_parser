@@ -98,7 +98,7 @@ allocVar :: M Term
 allocVar = do
   vu <- liftTab $ use nextVar
   liftTab $ nextVar %= (+1)
-  return (TVar vu)
+  return (wrap $ TVar vu)
 
 allocM :: VarName -> AllocM Term
 allocM name = do
