@@ -93,6 +93,8 @@ allocM name = do
     Nothing -> do { t <- lift $ allocVar; put (Map.insert name t varMap); return t }
     Just t -> return t
 
+pred'name = pred'spred.spred'name
+pred'args = pred'spred.spred'args
 orClause'subst = orClause'atoms.traverse.atom'pred.pred'spred.spred'args.traverse.term'subst
 
 allocVars :: OrClause -> M [Atom]
@@ -110,10 +112,13 @@ allocNode = do
 anyClause :: M [Atom]
 anyClause = (liftTab $ use $ clauses.notAndForm'orClauses) >>= anyM >>= allocVars
 
-applySymmAxiom :: (Term,Term) -> ((Term,Term) -> M Tree.Node) -> M Tree.Node
-applySymmAxiom (l,r) cont = join $ anyM [cont (l,r), do
-  n <- cont (r,l)
-  return $ snd $ Tree.symm (Atom False (wrap $ PEq r l), n)]
+applySymmAxiom :: Atom -> (Atom -> M Tree.Node) -> M Tree.Node
+applySymmAxiom a@(Atom x p) cont = case unwrap p of
+  PEq l r -> join $ anyM [cont a, do
+    let a' = Atom x (wrap $ PEq r l)
+    n <- cont a' 
+    return $ snd $ Tree.symm (negAtom a', n)]
+  _ -> cont a
 
 withCtx msg cont = cont
 --withCtx :: String -> M a -> M a
@@ -160,8 +165,11 @@ addLT lr = do
 
 --------------------------------
 
+-- not sure if non-paramodulation strong step for equality predicate is needed
+-- TODO: verify that against the proof
+-- TODO: verify if swapping r* with s* is needed
 strongPred :: Atom -> Atom -> M Tree.Node
-strongPred a1 a2 = do
+strongPred a1 a2 = if a1^.atom'pred.pred'name /= a2^.atom'pred.pred'name || a1^.atom'sign==a2^.atom'sign then throw else do
   let r = a1^.atom'args
   let s = a2^.atom'args
   v <- mapM (\_ -> allocVar) r
@@ -189,13 +197,16 @@ swap t' t = case unwrap t of
 atom'term :: Traversal' Atom Term
 atom'term = atom'pred.pred'spred.spred'args.traverse
 
+posEq :: Atom -> ((Term,Term) -> M Tree.Node) -> M Tree.Node
+posEq (Atom True p) cont = case unwrap p of { PEq l r -> cont (l,r); _ -> throw }
+posEq _ cont = throw
+
 -- S || \Gamma, L[p], z~r
 -- S || \Gamma, L[p], f(s)~r
-strongLEq :: Atom -> (Term,Term) -> M Tree.Node
-strongLEq aLp (l,r) = do
+strongLEq :: Atom -> Atom -> M Tree.Node
+strongLEq aLp alr = posEq alr $ \(l,r) -> do
   w <- allocVar
   (aLw,p) <- anyM (runSwap $ atom'term (swap w) aLp)
-  --axiomCongPredDeep (aLw^.atom'pred, aLp^.atom'pred)
   case unwrap l of
     TVar _ -> do {
       let { z = l };
@@ -227,11 +238,10 @@ strongLEq aLp (l,r) = do
     }
 
 -- S || \Gamma, l~r, L[f(s)]
-strongEqL :: (Term,Term) -> Atom -> M Tree.Node
-strongEqL (l,r) aLp = do
+strongEqL :: Atom -> Atom -> M Tree.Node
+strongEqL alr aLp = posEq alr $ \(l,r) -> do
   w <- allocVar
   (aLw,p) <- anyM (runSwap $ atom'term (swap w) aLp)
-  --axiomCongPredDeep (aLw^.atom'pred, aLp^.atom'pred)
   case unwrap p of
     TFun f s -> do {
       let { fs = p };
@@ -261,39 +271,19 @@ strong = withCtx "strong" $ do
     [] -> throw
     [a] -> expand
     a:b:_ -> join $ anyM [
-      (case (a,b) of
-        -- S || \Gamma,!P[r],P[s]
-        -- S || \Gamma,P[r],!P[s]
-        (a1@(Atom x1 p1), a2@(Atom x2 p2)) | x1/=x2 -> case (unwrap p1, unwrap p2) of
-          (PCustom n1 r, PCustom n2 s) | n1 == n2 -> strongPred a1 a2
-          _ -> throw
-        _ -> throw),
-      {-(case (a,b) of
-        -- not sure if non-paramodulation strong step for equality predicate is needed
-        -- TODO: verify that against the proof
-        -- TODO: verify if swapping r* with s* is needed
-        (a1@(Atom x1 (PEq r1 r2)), a2@(Atom x2 (PEq s1 s2))) | x1/=x2 ->
-          applySymmAxiom (r1,r2) (\(r1,r2) -> strongPred (Atom x1 (PEq r1 r2)) a2)
-        _ -> throw),-}
-      (case (a,b) of
-        -- S || \Gamma, L[p], z~r
-        -- S || \Gamma, L[p], f(s)~r
-        (a1@(Atom True p), aLp) -> case unwrap p of 
-          PEq l r -> applySymmAxiom (l,r) (strongLEq aLp)
-          _ -> throw
-        _ -> throw),
-      (case (a,b) of
-        -- S || \Gamma, l~r, L[f(s)]
-        (aLp, a2@(Atom True p2)) -> case unwrap p2 of
-          PEq l r -> applySymmAxiom (l,r) (\lr -> strongEqL lr aLp)
-          _ -> throw
-        _ -> throw)]
+      -- S || \Gamma,!P[r],P[s]
+      -- S || \Gamma,P[r],!P[s]
+      applySymmAxiom a (\a' -> strongPred a' b),
+      -- S || \Gamma, L[p], z~r
+      -- S || \Gamma, L[p], f(s)~r
+      applySymmAxiom a (strongLEq b),
+      -- S || \Gamma, l~r, L[f(s)]
+      applySymmAxiom b (\b' -> strongEqL b' a)]
 
-weakLEq :: Atom -> (Term,Term) -> M Tree.Node
-weakLEq aLp (l,r) = do
+weakLEq :: Atom -> Atom -> M Tree.Node
+weakLEq aLp alr = posEq alr $ \(l,r) -> do
   w <- allocVar
   (aLw,p) <- anyM (runSwap $ atom'term (swap w) aLp)
-  --axiomCongPredDeep (aLw^.atom'pred, aLp^.atom'pred)
   addEQ (p,l)
   addLT (r,l)
   addEQ (r,w)
@@ -317,27 +307,21 @@ weak = withCtx "weak" $ do
     expand,
     -- S || \Gamma L[p],\Delta,l~r
     case path of {
-      (Atom True p:t) -> case unwrap p of
-        { PEq l r -> join $ anyM [allocNode >> applySymmAxiom (l,r) (weakLEq aLp) | aLp <- t]; _ -> throw };
-        _ -> throw
-      },
+      (aeq:t) -> join $ anyM [allocNode >> applySymmAxiom aeq (weakLEq aLp) | aLp <- t];
+      _ -> throw
+    },
     -- S || \Gamma l~r,\Delta,L[p]
     case path of { (aLp:t) -> join $ anyM [
-      allocNode >> applySymmAxiom (l,r) (weakLEq aLp) | Atom True p <- t, PEq l r <- [unwrap p]
+      allocNode >> applySymmAxiom aeq (weakLEq aLp) | aeq <- t
     ]; _ -> throw },
     -- S || \Gamma,!P[r],\Delta,P[s]
     -- S || \Gamma,P[r],\Delta,!P[s]
     case path of {
-      (aPs@(Atom x1 p1):t) -> case unwrap p1 of {
-        PCustom n1 s -> join $ anyM [mapM addEQ (zip r s) >> return Tree.predWeak | DNF.Atom x2 p2 <- t, PCustom n2 r <- [unwrap p2], x1/=x2, n1 == n2];
-      --TODO: is this necessary?
-        PEq l r -> join $ anyM [applySymmAxiom (l,r) $ \(l,r) -> do {
-          mapM addEQ (zip [l2,r2] [l,r]);
+      (aPs:t) -> join $ anyM [
+        if aPs^.atom'pred.pred'name/=aPr^.atom'pred.pred'name || aPs^.atom'sign==aPr^.atom'sign then throw else applySymmAxiom aPs $ \aPs' -> do
+          mapM addEQ (zip (aPr^.atom'pred.pred'args) (aPs'^.atom'pred.pred'args))
           return Tree.predWeak
-        } | Atom x2 p2 <- t, PEq l2 r2 <- [unwrap p2], x1/=x2];
-      };
-      _ -> throw
-    }]
+      | aPr <- t]; _ -> throw }]
 
 --------------------------------
 

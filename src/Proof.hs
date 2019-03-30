@@ -51,7 +51,9 @@ check problem proof =  do
   then fail "proof doesn't imply the formula"
   else case counterExample proof of
     Nothing -> return ()
-    Just e -> fail (show e)
+    Just e -> do
+      printE ("counter example: " ++ show e)
+      fail (show e)
 
 -----------------------------------------------------
 

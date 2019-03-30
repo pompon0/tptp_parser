@@ -57,9 +57,9 @@ cong f anxy = let
   in (afxfy, Node "conj" ((negAtom afxfy,Leaf):anxy))
 
 symm :: (Atom,Node) -> (Atom,Node)
-symm (axy,nxy) = let
-  (x,y) = case axy of { Atom False p -> case unwrap p of { PEq x y -> (x,y); _ -> error "symm" }; _ -> error "symm" }
-  ayx = Atom False $ wrap $ PEq y x
+symm (axy@(Atom s p),nxy) = let
+  (x,y) = case unwrap p of { PEq x y -> (x,y); _ -> error "symm" }
+  ayx = Atom s $ wrap $ PEq y x
   in (ayx, Node "symm" [(axy,nxy),(negAtom ayx,Leaf)])
 
 
