@@ -21,6 +21,7 @@ data Term' = TVar VarName | TFun FunName [Term]
 data Pred' = PEq Term Term | PCustom PredName [Term]
   deriving stock (Eq, Generic, Ord)
   deriving anyclass (Hashable, HashCons)
+{-
 type Term = HC Term'
 type Pred = HC Pred'
 
@@ -28,6 +29,12 @@ wrap :: HashCons a => a -> HC a
 wrap = hc
 unwrap :: HashCons a => HC a -> a
 unwrap = getVal
+-}
+
+wrap = id
+unwrap = id
+type Term = Term'
+type Pred = Pred'
 
 sort a b = if a<b then [a,b] else [b,a]
 conv (PEq a b) = (0,0,sort a b)
@@ -41,12 +48,12 @@ conv (PCustom n a) = (1,n,a)
 --type TraversalIO s t a b = forall f. MonadIO f => (a -> f b) -> (s -> f t)
 
 term'subst :: Traversal Term Term VarName Term
-term'subst g t = case getVal t of
+term'subst g t = case unwrap t of
   TVar vn -> g vn
-  TFun fn args -> pure hc <*> (pure (TFun fn) <*> (traverse.term'subst) g args)
+  TFun fn args -> pure wrap <*> (pure (TFun fn) <*> (traverse.term'subst) g args)
 
 term'subterm :: Fold Term Term
-term'subterm g t = case getVal t of
+term'subterm g t = case unwrap t of
   (TFun fn args) -> (traverse.term'subterm) g args *> g t *> pure t
   _ -> g t *> pure t
 
@@ -60,14 +67,14 @@ extraConstName :: FunName
 extraConstName = -1
 
 makeSPred :: Pred -> SPred
-makeSPred p = case getVal p of
+makeSPred p = case unwrap p of
   (PEq l r) -> SPred eqPredName [l,r]
   (PCustom pn args) -> SPred pn args
 
 makePred :: SPred -> Pred
 makePred (SPred pn args) = case args of
-  [l,r] | pn == eqPredName -> hc $ PEq l r
-  _ -> hc $ PCustom pn args 
+  [l,r] | pn == eqPredName -> wrap $ PEq l r
+  _ -> wrap $ PCustom pn args 
 
 pred'spred :: Iso' Pred SPred
 pred'spred = dimap makeSPred (fmap makePred)
@@ -91,14 +98,14 @@ emptyValuation = Map.empty
 
 -- function T[V] -> T[FV], represented by the valuation
 eval :: Valuation -> Term -> Term
-eval s t = case getVal t of
+eval s t = case unwrap t of
   (TVar vn) -> case Map.lookup vn s of { Nothing -> t; Just t' -> eval s t' }
-  (TFun f args) -> hc $ TFun f (map (eval s) args)
+  (TFun f args) -> wrap $ TFun f (map (eval s) args)
 
 -- TODO: rename to ground
 terminate :: Term -> Term
-terminate t = case getVal t of
-  (TVar _) -> hc $ TFun extraConstName []
-  (TFun f args) -> hc $ TFun f (map terminate args)
+terminate t = case unwrap t of
+  (TVar _) -> wrap $ TFun extraConstName []
+  (TFun f args) -> wrap $ TFun f (map terminate args)
 
 

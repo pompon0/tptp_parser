@@ -25,7 +25,8 @@ import qualified Trace
 import qualified Form
 
 --inputFile = "http://cl-informatik.uibk.ac.at/cek/grzegorz/f.tgz"
-inputFile = "https://storage.googleapis.com/tptp/tptp_sample.tgz"
+--inputFile = "https://storage.googleapis.com/tptp/tptp_sample.tgz"
+inputFile = "http://localhost:8000/tptp_sample.tgz"
 outputFile = "/tmp/f.tgz"
 
 extractEntry :: Tar.Entry -> IO (String,String)

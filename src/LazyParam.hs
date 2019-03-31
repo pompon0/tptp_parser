@@ -117,7 +117,7 @@ applySymmAxiom a@(Atom x p) cont = case unwrap p of
   PEq l r -> join $ anyM [cont a, do
     let a' = Atom x (wrap $ PEq r l)
     n <- cont a' 
-    return $ snd $ Tree.symm (negAtom a', n)]
+    return $ snd $ Tree.symm (Tree.negAtom a, n)]
   _ -> cont a
 
 withCtx msg cont = cont
@@ -165,11 +165,17 @@ addLT lr = do
 
 --------------------------------
 
+assertOpposite :: Atom -> Atom -> M ()
+assertOpposite a b = if a^.atom'pred.pred'name /= b^.atom'pred.pred'name || a^.atom'sign==b^.atom'sign then throw else return ()
+
+-- S || \Gamma,!P[r],P[s]
+-- S || \Gamma,P[r],!P[s]
 -- not sure if non-paramodulation strong step for equality predicate is needed
 -- TODO: verify that against the proof
 -- TODO: verify if swapping r* with s* is needed
 strongPred :: Atom -> Atom -> M Tree.Node
-strongPred a1 a2 = if a1^.atom'pred.pred'name /= a2^.atom'pred.pred'name || a1^.atom'sign==a2^.atom'sign then throw else do
+strongPred a1 a2 =  do
+  assertOpposite a1 a2
   let r = a1^.atom'args
   let s = a2^.atom'args
   v <- mapM (\_ -> allocVar) r
@@ -197,14 +203,15 @@ swap t' t = case unwrap t of
 atom'term :: Traversal' Atom Term
 atom'term = atom'pred.pred'spred.spred'args.traverse
 
-posEq :: Atom -> ((Term,Term) -> M Tree.Node) -> M Tree.Node
-posEq (Atom True p) cont = case unwrap p of { PEq l r -> cont (l,r); _ -> throw }
-posEq _ cont = throw
+assertEq :: Bool -> Atom -> M (Term,Term)
+assertEq s (Atom x p) = if s/=x then throw else
+  case unwrap p of { PEq l r -> return (l,r); _ -> throw }
 
 -- S || \Gamma, L[p], z~r
 -- S || \Gamma, L[p], f(s)~r
 strongLEq :: Atom -> Atom -> M Tree.Node
-strongLEq aLp alr = posEq alr $ \(l,r) -> do
+strongLEq aLp alr = applySymmAxiom alr $ \alr -> do
+  (l,r) <- assertEq True alr
   w <- allocVar
   (aLw,p) <- anyM (runSwap $ atom'term (swap w) aLp)
   case unwrap l of
@@ -239,7 +246,8 @@ strongLEq aLp alr = posEq alr $ \(l,r) -> do
 
 -- S || \Gamma, l~r, L[f(s)]
 strongEqL :: Atom -> Atom -> M Tree.Node
-strongEqL alr aLp = posEq alr $ \(l,r) -> do
+strongEqL alr aLp = applySymmAxiom alr $ \alr -> do
+  (l,r) <- assertEq True alr
   w <- allocVar
   (aLw,p) <- anyM (runSwap $ atom'term (swap w) aLp)
   case unwrap p of
@@ -273,15 +281,17 @@ strong = withCtx "strong" $ do
     a:b:_ -> join $ anyM [
       -- S || \Gamma,!P[r],P[s]
       -- S || \Gamma,P[r],!P[s]
-      applySymmAxiom a (\a' -> strongPred a' b),
+      strongPred b a,
       -- S || \Gamma, L[p], z~r
       -- S || \Gamma, L[p], f(s)~r
-      applySymmAxiom a (strongLEq b),
+      strongLEq b a,
       -- S || \Gamma, l~r, L[f(s)]
-      applySymmAxiom b (\b' -> strongEqL b' a)]
+      strongEqL b a]
 
+-- S || \Gamma L[p],\Delta,l~r
 weakLEq :: Atom -> Atom -> M Tree.Node
-weakLEq aLp alr = posEq alr $ \(l,r) -> do
+weakLEq aLp alr = applySymmAxiom alr $ \alr -> do
+  (l,r) <- assertEq True alr
   w <- allocVar
   (aLw,p) <- anyM (runSwap $ atom'term (swap w) aLp)
   addEQ (p,l)
@@ -301,26 +311,32 @@ weak = withCtx "weak" $ do
   join $ anyM [
     -- S || \Gamma, s!~t
     case path of {
-      Atom False p:_ -> case unwrap p of { PEq l r -> addEQ (l,r) >> return (Tree.refl l); _ -> throw };
+      (aneq:_) -> do {
+        (l,r) <- assertEq False aneq;
+        addEQ (l,r);
+        return (Tree.refl l);
+      };
       _ -> throw
     },
     expand,
     -- S || \Gamma L[p],\Delta,l~r
     case path of {
-      (aeq:t) -> join $ anyM [allocNode >> applySymmAxiom aeq (weakLEq aLp) | aLp <- t];
+      (aeq:t) -> join $ anyM [allocNode >> weakLEq aLp aeq | aLp <- t];
       _ -> throw
     },
     -- S || \Gamma l~r,\Delta,L[p]
-    case path of { (aLp:t) -> join $ anyM [
-      allocNode >> applySymmAxiom aeq (weakLEq aLp) | aeq <- t
-    ]; _ -> throw },
+    case path of {
+      (aLp:t) -> join $ anyM [allocNode >> weakLEq aLp aeq | aeq <- t];
+      _ -> throw
+    },
     -- S || \Gamma,!P[r],\Delta,P[s]
     -- S || \Gamma,P[r],\Delta,!P[s]
     case path of {
-      (aPs:t) -> join $ anyM [
-        if aPs^.atom'pred.pred'name/=aPr^.atom'pred.pred'name || aPs^.atom'sign==aPr^.atom'sign then throw else applySymmAxiom aPs $ \aPs' -> do
-          mapM addEQ (zip (aPr^.atom'pred.pred'args) (aPs'^.atom'pred.pred'args))
-          return Tree.predWeak
+      (aPs:t) -> join $ anyM [ do
+          assertOpposite aPs aPr
+          applySymmAxiom aPs $ \aPs' -> do
+            mapM addEQ (zip (aPr^.atom'pred.pred'args) (aPs'^.atom'pred.pred'args))
+            return Tree.predWeak
       | aPr <- t]; _ -> throw }]
 
 --------------------------------
