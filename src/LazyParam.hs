@@ -359,7 +359,7 @@ prove form nodesLimit = do
   case res of
     Left () -> return (Nothing,searchState)
     Right ((proofTree,bs),s) -> do
-      let proofTree' = proofTree & Tree.node'deepAtom.atom'term %~ terminate . eval (s^.mguState)
+      let proofTree' = proofTree & Tree.node'deepAtom.atom'term %~ ground . eval (s^.mguState)
       printE proofTree'
       let proof = toOrForm $ NotAndForm (proofTree'^..(Tree.node'proof))
       --printE proof

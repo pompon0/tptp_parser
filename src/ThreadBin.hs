@@ -25,6 +25,6 @@ main = do
   --[tarPath] <- getArgs
   --forms <- readProtoTar tarPath >>= mapM (\(k,p) -> assert (toDNF p) >>= return . (,) k)
   forms <- pullSimple >>= mapM (\(k,p) -> assert (toDNF p) >>= return . (,) k)
-  let timeout_us = 2*1000000
+  let timeout_us = 5*1000000
   killable $ runInParallelWithTimeout timeout_us $ map proveAndCheck forms
   return ()

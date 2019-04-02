@@ -41,8 +41,9 @@ dependencies:
 - clock
 - hashcons
 - hashable
+- hashtables
 
-ghc-options: -O2 -Wincomplete-patterns -Werror -fbreak-on-error
+ghc-options: -O2 -Werror -fbreak-on-error
 
 library:
   source-dirs: src
