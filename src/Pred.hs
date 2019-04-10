@@ -19,18 +19,6 @@ import HashSeq
 data Term' = TVar VarName | TFun FunName [Term]
 data Pred' = PEq Term Term | PCustom PredName [Term]
 
-{-instance UuidList Term' where
-  uuidList (TVar vn) = [0,fromIntegral vn]
-  uuidList (TFun fn args) = 1 : fromIntegral fn : map uuid args
-
-instance UuidList Pred' where
-  uuidList (PEq a b) = [0,uuid a,uuid b]
-  uuidList (PCustom pn args) = 1 : fromIntegral pn : map uuid args
-
-type Term = WithUuid Term'
-type Pred = WithUuid Pred'
--}
-
 type Term = WithHash Term'
 type Pred = WithHash Pred'
 
