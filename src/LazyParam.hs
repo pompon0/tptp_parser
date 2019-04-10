@@ -200,8 +200,8 @@ swap t' t = case unwrap t of
   TVar _ -> pure t
   TFun name args -> Swap [(t',t)] [] <> (pure (wrap . TFun name) <*> traverse (swap t') args)
 
-atom'term :: Traversal' Atom Term
-atom'term = atom'pred.pred'spred.spred'args.traverse
+atom'arg :: Traversal' Atom Term
+atom'arg = atom'pred.pred'spred.spred'args.traverse
 
 assertEq :: Bool -> Atom -> M (Term,Term)
 assertEq s (Atom x p) = if s/=x then throw else
@@ -213,7 +213,7 @@ strongLEq :: Atom -> Atom -> M Tree.Node
 strongLEq aLp alr = applySymmAxiom alr $ \alr -> do
   (l,r) <- assertEq True alr
   w <- allocVar
-  (aLw,p) <- anyM (runSwap $ atom'term (swap w) aLp)
+  (aLw,p) <- anyM (runSwap $ atom'arg (swap w) aLp)
   case unwrap l of
     TVar _ -> do {
       let { z = l };
@@ -249,7 +249,7 @@ strongEqL :: Atom -> Atom -> M Tree.Node
 strongEqL alr aLp = applySymmAxiom alr $ \alr -> do
   (l,r) <- assertEq True alr
   w <- allocVar
-  (aLw,p) <- anyM (runSwap $ atom'term (swap w) aLp)
+  (aLw,p) <- anyM (runSwap $ atom'arg (swap w) aLp)
   case unwrap p of
     TFun f s -> do {
       let { fs = p };
@@ -293,7 +293,7 @@ weakLEq :: Atom -> Atom -> M Tree.Node
 weakLEq aLp alr = applySymmAxiom alr $ \alr -> do
   (l,r) <- assertEq True alr
   w <- allocVar
-  (aLw,p) <- anyM (runSwap $ atom'term (swap w) aLp)
+  (aLw,p) <- anyM (runSwap $ atom'arg (swap w) aLp)
   addEQ (p,l)
   addLT (r,l)
   addEQ (r,w)
@@ -359,7 +359,7 @@ prove form nodesLimit = do
   case res of
     Left () -> return (Nothing,searchState)
     Right ((proofTree,bs),s) -> do
-      let proofTree' = proofTree & Tree.node'deepAtom.atom'term %~ ground . eval (s^.mguState)
+      let proofTree' = proofTree & Tree.node'deepAtom.atom'arg %~ ground . eval (s^.mguState)
       printE proofTree'
       let proof = toOrForm $ NotAndForm (proofTree'^..(Tree.node'proof))
       --printE proof

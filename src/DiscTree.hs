@@ -5,8 +5,9 @@ module DiscTree(build,match,Tree) where
 
 import Lib
 import Pred
+import DNF
 import qualified Data.Map as Map
-import Control.Lens(makeLenses,Traversal',at,(&),(%~),(.~))
+import Control.Lens(makeLenses,Iso',Traversal',at,(&),(%~),(.~))
 import Control.Lens.Iso(non)
 
 data Tree x = Tree {
@@ -16,6 +17,8 @@ data Tree x = Tree {
   _output :: [x]
 } deriving(Eq,Show)
 makeLenses ''Tree
+
+-------------------------------------------------------------------
 
 emptyTree = Tree Map.empty Nothing [] []
 

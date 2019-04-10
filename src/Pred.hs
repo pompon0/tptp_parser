@@ -8,7 +8,6 @@
 {-# LANGUAGE ViewPatterns #-}
 module Pred where
 
-import Control.Monad.IO.Class(MonadIO,liftIO)
 import Lib
 import Control.Lens(makeLenses,Traversal,Traversal',Fold,Lens,Lens',Iso',dimap)
 import qualified Data.Map as Map

@@ -14,6 +14,9 @@ import Pred
 import qualified Skolem
 import LPO(lpo)
 import qualified MGU
+import qualified DiscTree
+import DiscTree(match)
+
 import Control.Monad(mplus,mzero,MonadPlus,join,foldM)
 import Control.Monad.State.Class(MonadState,get,put)
 import qualified Control.Monad.Trans.Cont as ContM
@@ -50,7 +53,8 @@ data SearchState = SearchState {
 makeLenses ''SearchState
 
 data TabState = TabState {
-  _clauses :: NotAndForm,
+  _clauses :: [OrClause],
+  _clausesSelector :: Atom -> [([Atom],Atom,[Atom])],
   _nextVar :: VarName,
   -- we are limiting nodes, not vars, because it is possible to create an infinite branch of
   -- clauses without variables, see for example: (!p or !q) and (p or q)
@@ -84,14 +88,6 @@ throw = do
   lift $ lift $ lift $ lift $ failCount %= (+1)
   lift $ lift $ lift $ ExceptM.throwE ()
 
-allButOne :: (a -> M ProofTree) -> (a -> M ProofTree) -> [a] -> M ProofTree
-allButOne all one tasks = do
-  (l,x,r) <- anyM (select tasks)
-  bx <- branchM $ one x
-  bl <- mapM (branchM.all) l
-  br <- mapM (branchM.all) r
-  return $ Expand $ bl <> [bx] <> br
-
 ------------------------------------------------- 
 
 allocVar :: M Term
@@ -107,7 +103,13 @@ allocM name = do
     Nothing -> do { t <- lift $ allocVar; put (Map.insert name t varMap); return t }
     Just t -> return t
 
-orClause'subst = orClause'atoms.traverse.atom'pred.pred'spred.spred'args.traverse.term'subst
+atom'subst = atom'pred.pred'spred.spred'args.traverse.term'subst
+orClause'subst = orClause'atoms.traverse.atom'subst
+
+type SelClause = ([Atom],Atom,[Atom])
+selClause'atom :: Traversal' SelClause Atom
+selClause'atom f (l,x,r) = pure (,,) <*> traverse f l <*> f x <*> traverse f r
+selClause'subst = selClause'atom.atom'subst
 
 allocVars :: OrClause -> M [Atom]
 allocVars cla = do
@@ -115,17 +117,18 @@ allocVars cla = do
   liftTab $ usedClauses %= (notOrClause cla2:)
   return $ cla2^.orClause'atoms
 
+allocVars'SelClause :: SelClause -> M SelClause
+allocVars'SelClause sc = do
+  (cs'@(l,x,r),_) <- StateM.runStateT (selClause'subst allocM sc) Map.empty
+  liftTab $ usedClauses %= ((notOrClause $ OrClause $ l <> [x] <> r):)
+  return cs'
+
 allocNode :: M ()
 allocNode = do
   nu <- liftTab $ use nodesUsed
   nl <- liftTab $ use nodesLimit
   if nu >= nl then throw else do
     liftTab $ nodesUsed %= (+1)
-
-
--- allocates fresh variables
-anyClause :: M [Atom]
-anyClause = (liftTab $ use $ clauses.notAndForm'orClauses) >>= anyM >>= allocVars
 
 withCtx :: String -> M a -> M a
 --withCtx msg cont = liftTab (ctx %= (msg:)) >> cont
@@ -136,12 +139,22 @@ pushAndCont cont a = do
   liftBranch $ branch %= (a:)
   withCtx (show a) (showCtx >> cont) >>= return . Node a
 
+start :: M ProofTree
+start = do
+  atoms <- (liftTab $ use $ clauses) >>= anyM >>= allocVars
+  mapM (branchM.pushAndCont expand) atoms >>= return . Expand
+
 expand :: M ProofTree
 expand = do
   allocNode
   liftSearch $ totalNodeCount %= (+1)
-  atoms <- anyClause
-  withCtx (show $ OrClause atoms) $ allButOne (pushAndCont weak) (pushAndCont strong) atoms
+  h:_ <- liftBranch $ use $ branch
+  selector <- liftTab $ use $ clausesSelector
+  (l,x,r) <- (anyM $ selector (h & atom'sign %~ not)) >>= allocVars'SelClause
+  bx <- branchM $ pushAndCont strong x
+  bl <- mapM (branchM.pushAndCont weak) l
+  br <- mapM (branchM.pushAndCont weak) r
+  return $ Expand $ bl <> [bx] <> br
 
 addEQ :: (Term,Term) -> M ()
 addEQ lr = do
@@ -167,7 +180,6 @@ strong = do
     [a] -> expand
     a1:a2:_ -> if not (opposite a1 a2) then throw else
         mapM addEQ (zip (a1^.atom'args) (a2^.atom'args)) >> (withCtx "STRONG" showCtx) >> return Strong
-    [] -> throw
 
 weak :: M ProofTree
 weak = do
@@ -181,15 +193,28 @@ weak = do
 
 --------------------------------
 
+makeClausesSelector :: NotAndForm -> (Atom -> [([Atom],Atom,[Atom])])
+makeClausesSelector f = let { tree = DiscTree.build [(x^.atom'term,(l,x,r)) |
+    cla <- f^.notAndForm'orClauses,
+    (l,x,r) <- select (cla^.orClause'atoms)]
+  } in \a -> tree^..match (a^.atom'term)
+
+{-makeClausesSelector f = let { x = [lxr |
+    cla <- f^.notAndForm'orClauses,
+    lxr <- select (cla^.orClause'atoms)]
+  } in \a -> x
+-}
+
 -- returns a DNF of terminal clauses which implies input form (and is always true)
 prove :: OrForm -> Int -> IO (Maybe Proof, SearchState)
 prove form nodesLimit = do
   let {
     -- negate the input form
     clauses = toNotAndForm (appendEqAxioms form);
-    initialState = TabState clauses 0 0 nodesLimit Map.empty [] [];
+    clausesSelector = makeClausesSelector clauses;
+    initialState = TabState (clauses^.notAndForm'orClauses) clausesSelector 0 0 nodesLimit Map.empty [] [];
     -- start with expand step
-    runCont = ContM.runContT expand return;
+    runCont = ContM.runContT start return;
     runBranch = StateM.runStateT runCont (BranchState []);
     runTab = StateM.runStateT runBranch initialState;
     runExcept = ExceptM.runExceptT runTab;

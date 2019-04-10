@@ -70,8 +70,8 @@ _Term'toProto t = case unwrap t of
 _Atom'toProto :: Atom -> P.Atom
 _Atom'toProto atom = defMessage
   & #sign .~ atom^.atom'sign
-  & #name .~ (fromIntegral $ atom^.atom'pred.pred'spred.spred'name)
-  & #args .~ map _Term'toProto (atom^.atom'pred.pred'spred.spred'args)
+  & #name .~ (fromIntegral $ atom^.atom'name)
+  & #args .~ map _Term'toProto (atom^.atom'args)
 
 _Subst'toProto :: (VarName,Term) -> P.Subst
 _Subst'toProto (vn,t) = defMessage

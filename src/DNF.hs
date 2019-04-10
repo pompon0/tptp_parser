@@ -4,9 +4,10 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ViewPatterns #-}
 module DNF(
   dnf, simplify, isSubForm,
-  Atom(..), atom'sign, atom'pred, atom'name, atom'args, opposite,
+  Atom(..), atom'sign, atom'pred, atom'name, atom'args, atom'term, opposite,
   OrForm(..), orForm'andClauses,
   AndClause(..), andClause'atoms,
   NotAndForm(..), notAndForm'orClauses,
@@ -23,7 +24,7 @@ import Lib
 import qualified MGU
 import qualified Data.List.Ordered as Ordered
 import Control.Monad(foldM)
-import Control.Lens(Traversal',Lens',Fold,filtered,makeLenses,(&),(%~))
+import Control.Lens(Traversal',Lens',Iso',Fold,filtered,makeLenses,(&),(%~),dimap,from)
 import Data.List(intercalate)
 import Data.List.Utils (replace)
 import qualified Data.Set as Set
@@ -40,6 +41,11 @@ atom'args = atom'pred.pred'spred.spred'args
 
 opposite :: Atom -> Atom -> Bool
 opposite a1 a2 = a1^.atom'sign /= a2^.atom'sign && a1^.atom'name == a2^.atom'name
+
+atom'term :: Iso' Atom Term
+atom'term = dimap atomToTerm (fmap termToAtom)
+atomToTerm a = wrap $ TFun (if a^.atom'sign then 1 else 0) [wrap $ TFun (fromIntegral $ a^.atom'name) (a^.atom'args)]
+termToAtom (unwrap -> TFun sign [unwrap -> TFun pn args]) = Atom (sign==1) ((SPred (fromIntegral pn) args)^.from pred'spred)
 
 -- negated Conjunctive Normal Form
 newtype OrClause = OrClause { _orClause'atoms :: [Atom] } deriving(Ord,Eq)
