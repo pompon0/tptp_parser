@@ -9,6 +9,7 @@ import qualified MGUTest
 import qualified TableauxTest
 import qualified LazyParamTest
 import qualified DiscTreeTest
+import qualified GraphTest
 
 tests = testGroup "all" [
   --ParserTest.tests,
@@ -17,4 +18,5 @@ tests = testGroup "all" [
   MGUTest.tests,
   TableauxTest.tests,
   LazyParamTest.tests,
-  DiscTreeTest.tests]
+  DiscTreeTest.tests,
+  GraphTest.tests]

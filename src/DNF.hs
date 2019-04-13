@@ -24,7 +24,7 @@ import Lib
 import qualified MGU
 import qualified Data.List.Ordered as Ordered
 import Control.Monad(foldM)
-import Control.Lens(Traversal',Lens',Iso',Fold,filtered,makeLenses,(&),(%~),dimap,from)
+import Control.Lens(Traversal',Lens',Iso',Fold,filtered,makeLenses,(&),(%~),dimap,from,(^..),(^.),toListOf)
 import Data.List(intercalate)
 import Data.List.Utils (replace)
 import qualified Data.Set as Set

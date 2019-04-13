@@ -7,7 +7,7 @@ import Pred
 import Prelude hiding(pred)
 import Control.Monad(join)
 import qualified Data.Set as Set
-import Control.Lens(makeLenses,(&),(%~))
+import Control.Lens(makeLenses,(&),(%~),(^.),(^..))
 import Control.Monad.Except as ExceptM
 
 neg :: Atom -> Atom

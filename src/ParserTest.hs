@@ -14,6 +14,7 @@ import qualified NNF
 import Pred
 import DNF
 import qualified Data.Set.Monad as Set
+import Control.Lens((^.),(^..))
 import Lib
 
 tests = testGroup "ParserTest" [testCaseSteps "ParserTest" test]

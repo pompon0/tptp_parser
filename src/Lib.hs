@@ -13,6 +13,8 @@ import Data.Monoid(Endo(..))
 import Data.Functor.Const(Const(..))
 import Data.Hashable(Hashable)
 
+import qualified Debug.Trace as Trace
+
 import qualified Data.ProtoLens.TextFormat as TextFormat
 import Data.ProtoLens.Message(Message)
 import qualified Data.Text.Lazy as Text
@@ -34,6 +36,12 @@ newtype VarName = VarName Int deriving (Eq,Num,Ord,Integral,Real,Enum,Hashable)
 instance Show FunName where { show (FunName n) = "f" ++ show n }
 instance Show PredName where { show (PredName n) = "p" ++ show n }
 instance Show VarName where { show (VarName n) = "v" ++ show n }
+
+dPrint :: (Monad m, Show a) => a -> m ()
+dPrint = Trace.traceShowM 
+
+compose :: [a -> a] -> (a -> a)
+compose = foldl (.) id 
 
 select :: [a] -> [([a],a,[a])]
 select [] = []
@@ -113,7 +121,7 @@ readProtoFile :: Message a => String -> IO a
 readProtoFile path = readFile path >>= assert . TextFormat.readMessage . Text.pack 
 
 --------------------------------------------
-
+{-
 type Getting r s t a b = (a -> Const r b) -> (s -> Const r t)
 toListOf :: Getting [a] s t a b -> s -> [a]
 toListOf t = getConst . t (\a -> Const [a])
@@ -124,7 +132,7 @@ toListOf t = getConst . t (\a -> Const [a])
 (^.) :: s -> Getting a s t a b -> a
 (^.) s g = getConst $ g (\a -> Const a) s
 infix 8 ^.,^..
-
+-}
 --------------------------------------------
 
 diffSeconds :: Clock.TimeSpec -> Clock.TimeSpec -> Double

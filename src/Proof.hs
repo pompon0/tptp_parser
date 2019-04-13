@@ -9,7 +9,7 @@ import Pred
 import qualified Proto.Proof as P
 import qualified Data.Map as Map
 import Data.ProtoLens(defMessage)
-import Lens.Micro((.~),(&),(%~))
+import Control.Lens((.~),(&),(%~),(^.),(^..))
 import Lens.Labels.Unwrapped ()
 import qualified Data.Set.Monad as SetM
 import Control.Monad(foldM)

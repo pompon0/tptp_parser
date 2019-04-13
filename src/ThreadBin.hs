@@ -14,7 +14,7 @@ import Proof(check)
 
 proveAndCheck :: (String, DNF.OrForm) -> (String, IO String)
 proveAndCheck (name, problem) = (,) name $ do
-  mProof <- Tableaux.proveLoop problem 100
+  mProof <- LazyParam.proveLoop problem 100
   case mProof of
     Nothing -> return "proof not found"
     Just proof -> do

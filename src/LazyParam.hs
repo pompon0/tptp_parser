@@ -23,7 +23,7 @@ import Control.Monad.Trans.Class(lift)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import qualified Data.Set.Monad as SetM
-import Control.Lens(Traversal',Lens',Fold,makeLenses, (&), (%~), (.~), over, view, use, (.=), (%=))
+import Control.Lens(Traversal',Lens',Fold,makeLenses, (&), (%~), (.~), over, view, use, (.=), (%=), (^.),(^..))
 import Control.DeepSeq(NFData,force)
 import GHC.Generics (Generic)
 import qualified System.Clock as Clock
@@ -35,13 +35,12 @@ data SearchState = SearchState {
 makeLenses ''SearchState
 
 data TabState = TabState {
+  _reductionOrder :: Term -> Term -> Bool, -- a < b ?
   _clauses :: NotAndForm,
   _nextVar :: VarName,
   _nodesUsed, _nodesLimit :: Int,
   _ineq :: Set.Set (Term,Term),
-  _mguState :: Valuation, --_eq :: Set.Set (Term,Term)
-  
-  _choices :: [String]
+  _mguState :: Valuation
 }
 makeLenses ''TabState
 
@@ -149,7 +148,8 @@ expand = do
 validateLT :: (Term,Term) -> M ()
 validateLT (l,r) = do
   s <- liftTab $ use mguState
-  if lpo (eval s r) (eval s l) then throw else return ()
+  ord <- liftTab $ use reductionOrder
+  if ord (eval s r) (eval s l) then throw else return ()
 
 addEQ :: (Term,Term) -> M ()
 addEQ lr = withCtx ("addEQ " ++ show lr) $ do
@@ -201,7 +201,7 @@ swap t' t = case unwrap t of
   TFun name args -> Swap [(t',t)] [] <> (pure (wrap . TFun name) <*> traverse (swap t') args)
 
 atom'arg :: Traversal' Atom Term
-atom'arg = atom'pred.pred'spred.spred'args.traverse
+atom'arg = atom'args.traverse
 
 assertEq :: Bool -> Atom -> M (Term,Term)
 assertEq s (Atom x p) = if s/=x then throw else
@@ -341,12 +341,15 @@ weak = withCtx "weak" $ do
 
 --------------------------------
 
+emptyOrder :: Term -> Term -> Bool
+emptyOrder _ _ = False
+
 prove :: OrForm -> Int -> IO (Maybe Proof.Proof, SearchState)
 prove form nodesLimit = do
   let {
     -- negate the input form
     clauses = toNotAndForm form;
-    initialState = TabState clauses 0 0 nodesLimit Set.empty Map.empty [];
+    initialState = TabState lpo clauses 0 0 nodesLimit Set.empty Map.empty;
     -- start with expand step
     runCont = ContM.runContT expand return;
     runBranch = StateM.runStateT runCont (BranchState [] []);

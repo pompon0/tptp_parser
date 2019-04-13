@@ -7,6 +7,7 @@ import Control.Monad.State.Class(get,modify)
 import Control.Monad.Trans.Class(lift)
 import qualified Data.Map as Map
 import Debug.Trace
+import Control.Lens(at,(.=))
 
 import Lib
 
@@ -32,11 +33,11 @@ assign xn t = do
     TVar vn | vn==xn -> return ();
     -- traverse TVar assignments
     TVar vn -> case Map.lookup vn s of {
-      Nothing -> modify (Map.insert xn t);
+      Nothing -> at xn .= Just t;
       Just t' -> assign xn t';
     };
     -- perform TFun assignment (but check for loop)
-    _ -> if has t then throw else modify (Map.insert xn t);
+    _ -> if has t then throw else at xn .= Just t;
   }
 
 runMGU :: (Term,Term) -> Valuation -> Maybe Valuation
@@ -45,7 +46,7 @@ runMGU lr s = case ExceptM.runExcept (StateM.runStateT (mgu lr) s) of
   Right (_,s) -> Just s
 
 mgu :: (Term,Term) -> M ()
-mgu (x,y) = case (unwrap x, unwrap y) of
+mgu (x,y) = if x==y then return () else case (unwrap x, unwrap y) of
     (TFun f1 a1, TFun f2 a2) | f1 == f2 -> mapM_ mgu (zip a1 a2)
     -- TODO: you can implement path compression here
     (TFun _ _, TVar _) -> mgu (y,x)

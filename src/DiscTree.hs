@@ -7,7 +7,7 @@ import Lib
 import Pred
 import DNF
 import qualified Data.Map as Map
-import Control.Lens(makeLenses,Iso',Traversal',at,(&),(%~),(.~))
+import Control.Lens(makeLenses,Iso',Traversal',at,(&),(%~),(.~),(^..),(^.))
 import Control.Lens.Iso(non)
 
 data Tree x = Tree {
@@ -27,9 +27,6 @@ build = setInputVar . foldr add emptyTree
 
 add :: Eq x => (Term,x) -> Tree x -> Tree x
 add (t,v) tree = tree & path t . output %~ (v:)
-
-compose :: [a -> a] -> (a -> a)
-compose = foldl (.) id 
 
 path :: Eq x => Term -> Traversal' (Tree x) (Tree x)
 path (unwrap -> TVar _) = indexVar.non emptyTree

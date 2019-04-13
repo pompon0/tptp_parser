@@ -26,7 +26,7 @@ import Control.Monad.Trans.Class(lift)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import qualified Data.Set.Monad as SetM
-import Control.Lens(makeLenses, Fold, Traversal, Traversal', (&), (%~), (.~), over, view, use, (.=), (%=))
+import Control.Lens(makeLenses, Fold, Traversal, Traversal', (&), (%~), (.~), over, view, use, (.=), (%=),(^.),(^..))
 import Data.List.Utils (replace)
 import Data.List(sort,nub)
 import Control.Concurrent
@@ -149,8 +149,10 @@ expand = do
   allocNode
   liftSearch $ totalNodeCount %= (+1)
   h:_ <- liftBranch $ use $ branch
-  selector <- liftTab $ use $ clausesSelector
-  (l,x,r) <- (anyM $ selector (h & atom'sign %~ not)) >>= allocVars'SelClause
+  selector <- liftTab $ use clausesSelector
+  ms <- liftTab $ use mguState
+  let h' = h & atom'args.traverse %~ eval ms & atom'sign %~ not
+  (l,x,r) <- (anyM $ selector h') >>= allocVars'SelClause
   bx <- branchM $ pushAndCont strong x
   bl <- mapM (branchM.pushAndCont weak) l
   br <- mapM (branchM.pushAndCont weak) r
@@ -177,7 +179,6 @@ strong = do
   showCtx
   --lift $ lift $ lift $ print $ "strong " ++ show path
   case path of
-    [a] -> expand
     a1:a2:_ -> if not (opposite a1 a2) then throw else
         mapM addEQ (zip (a1^.atom'args) (a2^.atom'args)) >> (withCtx "STRONG" showCtx) >> return Strong
 

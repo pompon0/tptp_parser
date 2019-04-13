@@ -31,6 +31,8 @@ lpo a b = case (unwrap a, unwrap b) of
     r True at _ = all (\x -> x/=b && lpo x b) at
     in any (lpo a) ba || (af<=bf && r (af/=bf) aa ba)
 
+---------------------------------------------------------------
+
 {-
 lpo s t = (s==t) || case (s,t) of
   (_,TVar x) -> s /= t && mem x (fvt s)

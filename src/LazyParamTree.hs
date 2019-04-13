@@ -5,7 +5,7 @@ import Lib
 import Pred
 import DNF
 import Control.Monad(join)
-import Control.Lens(Traversal',Lens',Fold,makeLenses, (&), (%~), (.~), over, view, use, (.=), (%=))
+import Control.Lens(Traversal',Lens',Fold,makeLenses, (&), (%~), (.~), over, view, use, (.=), (%=),(^.),(^..))
 import Debug.Trace
 
 negAtom :: Atom -> Atom
