@@ -13,6 +13,7 @@ import qualified Proof
 import qualified Tableaux
 import Proof(andClause'term)
 import qualified LazyParamTree as Tree
+import qualified Graph
 
 import Control.Monad(mplus,mzero,MonadPlus,join)
 import Control.Monad.State.Class(MonadState,get,put)
@@ -151,6 +152,12 @@ validateLT (l,r) = do
   ord <- liftTab $ use reductionOrder
   if ord (eval s r) (eval s l) then throw else return ()
 
+validateAcyclic :: M ()
+validateAcyclic = do
+  s <- liftTab $ use mguState
+  edges :: [(Term,Term)] <- (liftTab $ use ineq) >>= return . map (\(l,r) -> (eval s l, eval s r)) . Set.toList
+  if Graph.cyclic (Graph.toGraph edges) then throw else return ()
+
 addEQ :: (Term,Term) -> M ()
 addEQ lr = withCtx ("addEQ " ++ show lr) $ do
   showCtx
@@ -158,10 +165,13 @@ addEQ lr = withCtx ("addEQ " ++ show lr) $ do
   case MGU.runMGU lr s of { Nothing -> throw; Just s' -> liftTab $ mguState .= s' }
   lrs <- liftTab $ use ineq
   mapM_ validateLT lrs
+  validateAcyclic
+
 addLT :: (Term,Term) -> M ()
 addLT lr = do
   liftTab $ ineq %= Set.insert lr
   validateLT lr
+  validateAcyclic
 
 --------------------------------
 

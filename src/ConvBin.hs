@@ -1,5 +1,5 @@
 module ConvBin(main,
-  pullInteresting,pullSimple,
+  pullInteresting,pullSimple,pullProtoTar,
   readProtoTar,saveProtoTar) where
 
 import Lens.Micro((.~),(^.),(&))
