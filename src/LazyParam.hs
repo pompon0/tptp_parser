@@ -8,6 +8,7 @@ import Lib
 import DNF
 import Pred
 import LPO(lpo)
+import KBO(kbo)
 import qualified MGU
 import qualified Proof
 import qualified Tableaux
@@ -36,7 +37,7 @@ data SearchState = SearchState {
 makeLenses ''SearchState
 
 data TabState = TabState {
-  _reductionOrder :: Term -> Term -> Bool, -- a < b ?
+  _reductionOrder :: Int -> (Term,Term) -> Bool, -- a < b ?
   _clauses :: NotAndForm,
   _nextVar :: VarName,
   _nodesUsed, _nodesLimit :: Int,
@@ -94,8 +95,7 @@ allocM name = do
     Just t -> return t
 
 pred'name = pred'spred.spred'name
-pred'args = pred'spred.spred'args
-orClause'subst = orClause'atoms.traverse.atom'pred.pred'spred.spred'args.traverse.term'subst
+orClause'subst = orClause'atoms.traverse.atom'args.traverse.term'subst
 
 allocVars :: OrClause -> M [Atom]
 allocVars cla = do
@@ -150,7 +150,8 @@ validateLT :: (Term,Term) -> M ()
 validateLT (l,r) = do
   s <- liftTab $ use mguState
   ord <- liftTab $ use reductionOrder
-  if ord (eval s r) (eval s l) then throw else return ()
+  varCount <- liftTab $ use nextVar
+  if ord (fromIntegral varCount) (eval s r, eval s l) then throw else return ()
 
 validateAcyclic :: M ()
 validateAcyclic = do
@@ -165,13 +166,13 @@ addEQ lr = withCtx ("addEQ " ++ show lr) $ do
   case MGU.runMGU lr s of { Nothing -> throw; Just s' -> liftTab $ mguState .= s' }
   lrs <- liftTab $ use ineq
   mapM_ validateLT lrs
-  validateAcyclic
+  --validateAcyclic
 
 addLT :: (Term,Term) -> M ()
 addLT lr = do
   liftTab $ ineq %= Set.insert lr
   validateLT lr
-  validateAcyclic
+  --validateAcyclic
 
 --------------------------------
 
@@ -345,21 +346,24 @@ weak = withCtx "weak" $ do
       (aPs:t) -> join $ anyM [ do
           assertOpposite aPs aPr
           applySymmAxiom aPs $ \aPs' -> do
-            mapM addEQ (zip (aPr^.atom'pred.pred'args) (aPs'^.atom'pred.pred'args))
+            mapM addEQ (zip (aPr^.atom'args) (aPs'^.atom'args))
             return Tree.predWeak
       | aPr <- t]; _ -> throw }]
 
 --------------------------------
 
-emptyOrder :: Term -> Term -> Bool
+emptyOrder :: Int -> (Term,Term) -> Bool
 emptyOrder _ _ = False
+
+lpoOrder :: Int -> (Term,Term) -> Bool
+lpoOrder _ (l,r) = lpo l r
 
 prove :: OrForm -> Int -> IO (Maybe Proof.Proof, SearchState)
 prove form nodesLimit = do
   let {
     -- negate the input form
     clauses = toNotAndForm form;
-    initialState = TabState lpo clauses 0 0 nodesLimit Set.empty Map.empty;
+    initialState = TabState kbo clauses 0 0 nodesLimit Set.empty Map.empty;
     -- start with expand step
     runCont = ContM.runContT expand return;
     runBranch = StateM.runStateT runCont (BranchState [] []);

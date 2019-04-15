@@ -10,6 +10,7 @@ import qualified TableauxTest
 import qualified LazyParamTest
 import qualified DiscTreeTest
 import qualified GraphTest
+import qualified KBOTest
 
 tests = testGroup "all" [
   --ParserTest.tests,
@@ -19,4 +20,5 @@ tests = testGroup "all" [
   TableauxTest.tests,
   LazyParamTest.tests,
   DiscTreeTest.tests,
-  GraphTest.tests]
+  GraphTest.tests,
+  KBOTest.tests]

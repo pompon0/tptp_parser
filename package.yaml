@@ -39,7 +39,6 @@ dependencies:
 - split
 - data-ordlist
 - clock
-- hashcons
 - hashable
 - hashtables
 - options

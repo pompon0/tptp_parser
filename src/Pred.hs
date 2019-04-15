@@ -11,8 +11,6 @@ module Pred where
 import Lib
 import Control.Lens(makeLenses,Traversal,Traversal',Fold,Lens,Lens',Iso',dimap)
 import qualified Data.Map as Map
-import Data.HashCons(HC,hc,getVal,HashCons,Hashable)
-import GHC.Generics(Generic)
 import HashSeq
 
 data Term' = TVar VarName | TFun FunName [Term]

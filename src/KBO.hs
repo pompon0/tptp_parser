@@ -1,5 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-module KBO where
+module KBO(kbo) where
 
 import Pred
 import LibST
@@ -67,6 +67,7 @@ cmpAccum s lex = do
     (False,False) -> case compare w 0 of { LT -> L; GT -> G; EQ -> lex }
 
 -- O(|t1|+|t2|); accumulates var/weight balances and evaluates kbo comparison
+-- assumes that balances are initialized to 0
 cmp :: State s -> (Term,Term) -> ST s Res
 cmp s (t1,t2) = case (unwrap t1, unwrap t2) of
   (TFun fn fa, TFun gn ga) | t1/=t2 -> if fn/=gn then do
