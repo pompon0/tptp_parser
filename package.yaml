@@ -43,8 +43,9 @@ dependencies:
 - hashtables
 - options
 - array
+- comonad
 
-ghc-options: -O2 -Werror -fbreak-on-error
+ghc-options: -O2 -Werror -fexpose-all-unfoldings -fbreak-on-error
 
 library:
   source-dirs: src

@@ -151,6 +151,7 @@ expand = do
   h:_ <- liftBranch $ use $ branch
   selector <- liftTab $ use clausesSelector
   ms <- liftTab $ use mguState
+  -- ask clauses selector about negation of the last atom
   let h' = h & atom'args.traverse %~ eval ms & atom'sign %~ not
   (l,x,r) <- (anyM $ selector h') >>= allocVars'SelClause
   bx <- branchM $ pushAndCont strong x

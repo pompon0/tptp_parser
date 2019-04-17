@@ -7,7 +7,7 @@ import Lib
 import Pred
 import DNF
 import qualified Data.Map as Map
-import Control.Lens(makeLenses,Iso',ASetter',Traversal',at,non,to,(&),(%~),(.~),(^..),(^.),(^?))
+import Control.Lens(makeLenses,ASetter',Traversal',at,non,to,(&),(%~),(.~),(^..),(^.),(^?))
 
 data Tree x = Tree {
   _jumpFun :: Map.Map (FunName,Int) (Tree x),

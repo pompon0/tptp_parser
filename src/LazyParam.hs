@@ -15,8 +15,11 @@ import qualified Tableaux
 import Proof(andClause'term)
 import qualified LazyParamTree as Tree
 import qualified Graph
+import qualified DiscTree
+import DiscTree(match)
+import qualified ShallowIndex
 
-import Control.Monad(mplus,mzero,MonadPlus,join)
+import Control.Monad(mplus,mzero,MonadPlus,join,when)
 import Control.Monad.State.Class(MonadState,get,put)
 import qualified Control.Monad.Trans.Cont as ContM
 import qualified Control.Monad.Trans.State.Lazy as StateM
@@ -48,6 +51,8 @@ makeLenses ''TabState
 
 data BranchState = BranchState {
   _branch :: [Atom],
+  _branchAtomSelector :: DiscTree.Tree Atom,
+  _branchSubtermIndex :: ShallowIndex.SubtermIndex Atom,
   _ctx :: [String]
 }
 makeLenses ''BranchState
@@ -135,7 +140,12 @@ showCtx = return ()
 --  putStrLnE (show nu ++ "/" ++ show nl ++ "  " ++ show (reverse ch) ++ "  " ++ show (reverse c))
 
 pushAndCont :: M Tree.Node -> Atom -> M (Atom,Tree.Node)
-pushAndCont cont a = branch %= (a:) >> withCtx (show a) cont >>= return.((,) a)
+pushAndCont cont a = do
+  s <- liftTab $ use mguState
+  liftBranch $ branch %= (a:)
+  liftBranch $ branchAtomSelector %= DiscTree.add ((a & atom'arg %~ eval s)^.atom'term, a)
+  liftBranch $ branchSubtermIndex %= ShallowIndex.add (atom'arg ShallowIndex.swapAll a)
+  withCtx (show a) cont >>= return.((,) a)
 
 expand :: M Tree.Node
 expand = do
@@ -197,20 +207,6 @@ strongPred a1 a2 =  do
   ansr <- mapM (\(s',v') -> branchM $ pushAndCont weak (Atom False (wrap $ PEq s' v'))) (zip s v)
   return $ Tree.Node "strongPred" ((Tree.negAtom a1, Tree.Leaf):(Tree.negAtom a2, Tree.Leaf):ansr)
 
-data Swap s a = Swap { runSwap :: [(a,s)], runId :: [a] }
-
-instance Functor (Swap p) where { fmap f = (pure f <*>) }
-instance Applicative (Swap s) where
-  pure x = Swap [] [x]
-  Swap uf vf <*> Swap ux vx = Swap ([(f x,s) | (f,s) <- uf, x <- vx] ++ [(f x,s) | f <- vf, (x,s) <- ux]) [f x | f <- vf, x <- vx]
-instance Semigroup (Swap s a) where
-  Swap ua va <> Swap ub vb = Swap (ua <> ub) (va <> vb)
-
-swap :: Term -> Term -> Swap Term Term
-swap t' t = case unwrap t of
-  TVar _ -> pure t
-  TFun name args -> Swap [(t',t)] [] <> (pure (wrap . TFun name) <*> traverse (swap t') args)
-
 atom'arg :: Traversal' Atom Term
 atom'arg = atom'args.traverse
 
@@ -224,7 +220,8 @@ strongLEq :: Atom -> Atom -> M Tree.Node
 strongLEq aLp alr = applySymmAxiom alr $ \alr -> do
   (l,r) <- assertEq True alr
   w <- allocVar
-  (aLw,p) <- anyM (runSwap $ atom'arg (swap w) aLp)
+  (aL,p) <- anyM (ShallowIndex.build [atom'arg ShallowIndex.swapAll aLp]^..traverse.traverse)
+  let aLw = aL w
   case unwrap l of
     TVar _ -> do {
       let { z = l };
@@ -260,7 +257,8 @@ strongEqL :: Atom -> Atom -> M Tree.Node
 strongEqL alr aLp = applySymmAxiom alr $ \alr -> do
   (l,r) <- assertEq True alr
   w <- allocVar
-  (aLw,p) <- anyM (runSwap $ atom'arg (swap w) aLp)
+  (aL,p) <- anyM (ShallowIndex.build [atom'arg ShallowIndex.swapAll aLp]^..traverse.traverse)
+  let aLw = aL w
   case unwrap p of
     TFun f s -> do {
       let { fs = p };
@@ -300,11 +298,15 @@ strong = withCtx "strong" $ do
       strongEqL b a]
 
 -- S || \Gamma L[p],\Delta,l~r
-weakLEq :: Atom -> Atom -> M Tree.Node
-weakLEq aLp alr = applySymmAxiom alr $ \alr -> do
+weakLEq :: Atom -> M Tree.Node
+weakLEq alr = applySymmAxiom alr $ \alr -> do
   (l,r) <- assertEq True alr
+  bsi <- liftBranch $ use branchSubtermIndex
+  (aL,p) <- anyM (ShallowIndex.lookup l bsi)
+  let aLp = aL p
+  when (aLp == alr) throw
   w <- allocVar
-  (aLw,p) <- anyM (runSwap $ atom'arg (swap w) aLp)
+  let aLw = aL w
   addEQ (p,l)
   addLT (r,l)
   addEQ (r,w)
@@ -318,7 +320,8 @@ weakLEq aLp alr = applySymmAxiom alr $ \alr -> do
 
 weak :: M Tree.Node
 weak = withCtx "weak" $ do
-  path <- use branch
+  path <- liftBranch $ use branch
+  bas <- liftBranch $ use branchAtomSelector
   join $ anyM [
     -- S || \Gamma, s!~t
     case path of {
@@ -331,24 +334,19 @@ weak = withCtx "weak" $ do
     },
     expand,
     -- S || \Gamma L[p],\Delta,l~r
-    case path of {
-      (aeq:t) -> join $ anyM [allocNode >> weakLEq aLp aeq | aLp <- t];
-      _ -> throw
-    },
-    -- S || \Gamma l~r,\Delta,L[p]
-    case path of {
-      (aLp:t) -> join $ anyM [allocNode >> weakLEq aLp aeq | aeq <- t];
-      _ -> throw
-    },
+    allocNode >> anyM path >>= weakLEq,
     -- S || \Gamma,!P[r],\Delta,P[s]
     -- S || \Gamma,P[r],\Delta,!P[s]
     case path of {
-      (aPs:t) -> join $ anyM [ do
+      (aPs:t) -> do {
+        s <- liftTab $ use mguState;
+        let { aPrList = bas^..match ((aPs & atom'arg %~ eval s & atom'sign %~ not)^.atom'term) };
+        join $ anyM [ do
           assertOpposite aPs aPr
           applySymmAxiom aPs $ \aPs' -> do
             mapM addEQ (zip (aPr^.atom'args) (aPs'^.atom'args))
             return Tree.predWeak
-      | aPr <- t]; _ -> throw }]
+        | aPr <- aPrList]; }; _ -> throw }]
 
 --------------------------------
 
@@ -363,10 +361,10 @@ prove form nodesLimit = do
   let {
     -- negate the input form
     clauses = toNotAndForm form;
-    initialState = TabState kbo clauses 0 0 nodesLimit Set.empty Map.empty;
+    initialState = TabState lpoOrder clauses 0 0 nodesLimit Set.empty Map.empty;
     -- start with expand step
     runCont = ContM.runContT expand return;
-    runBranch = StateM.runStateT runCont (BranchState [] []);
+    runBranch = StateM.runStateT runCont (BranchState [] DiscTree.emptyTree ShallowIndex.emptySubtermIndex []);
     runTab = StateM.runStateT runBranch initialState;
     runExcept = ExceptM.runExceptT runTab;
     runSearch = StateM.runStateT runExcept (SearchState 0 0);
