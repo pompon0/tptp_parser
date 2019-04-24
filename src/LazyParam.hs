@@ -64,11 +64,35 @@ anyM choices = ContM.ContT (\cont -> foldl mplus mzero (map cont choices))
 branchM :: (MonadState s m) => m a -> m a
 branchM task = do { s <- get; r <- task; put s; return r }
 
+allM :: [M a] -> M [a]
+allM [] = return []
+allM [t] = branchM t >>= return.(:[])
+allM tasks = do
+  let n = length tasks
+  used <- liftTab $ use nodesUsed
+  limit <- liftTab $ use nodesLimit
+  let perTask = (limit-used) `div` n
+  let h:t = tasks
+  join $ anyM [
+    do {
+      liftTab $ nodesLimit .= used + perTask;
+      rh <- branchM h;
+      liftTab $ nodesLimit .= limit;
+      allM t >>= return.(rh:);
+    },
+    do {
+      liftTab $ nodesLimit .= limit - (perTask+1);
+      rt <- allM t;
+      liftTab $ nodesLimit .= limit;
+      branchM h >>= return.(:rt);
+    }]
+
 throw :: M a
 throw = do
   lift $ lift $ lift $ lift $ failCount %= (+1)
   lift $ lift $ lift $ ExceptM.throwE ()
 
+{-
 allButOne :: (a -> M b) -> (a -> M b) -> [a] -> M [b]
 allButOne all one tasks = do
   (l,x,r) <- anyM (select tasks)
@@ -76,6 +100,13 @@ allButOne all one tasks = do
   bl <- mapM (branchM.all) l
   br <- mapM (branchM.all) r
   return (bl <> [bx] <> br)
+-}
+
+allButOne :: (a -> M b) -> (a -> M b) -> [a] -> M [b]
+allButOne all one tasks = do
+  (l,x,r) <- anyM (select tasks)
+  allM ((map all l) ++ [one x] ++ (map all r))
+
 
 ------------------------------------------------- 
 
@@ -194,7 +225,7 @@ strongPred a1 a2 =  do
   -- WARNING: zip will truncate the longer list if lengths mismatch
   -- TODO: throw an error instead
   liftSearch $ totalNodeCount %= (+1)
-  ansr <- mapM (\(s',v') -> branchM $ pushAndCont weak (Atom False (wrap $ PEq s' v'))) (zip s v)
+  ansr <- allM $ map (\(s',v') -> pushAndCont weak (Atom False (wrap $ PEq s' v'))) (zip s v)
   return $ Tree.Node "strongPred" ((Tree.negAtom a1, Tree.Leaf):(Tree.negAtom a2, Tree.Leaf):ansr)
 
 data Swap s a = Swap { runSwap :: [(a,s)], runId :: [a] }
@@ -231,8 +262,9 @@ strongLEq aLp alr = applySymmAxiom alr $ \alr -> do
       addEQ (p,z);
       addLT (w,z);
       liftSearch $ totalNodeCount %= (+1);
-      anLw <- branchM $ pushAndCont weak aLw;
-      anrw <- branchM $ pushAndCont weak $ Atom False $ wrap $ PEq r w;
+      [anLw,anrw] <- allM [
+        pushAndCont weak aLw,
+        pushAndCont weak $ Atom False $ wrap $ PEq r w];
       let { anpz = (Atom False $ wrap $ PEq p z, Tree.refl p) };
       let { anzr = (Atom False $ wrap $ PEq z r, Tree.Leaf) };
       let { anpw = foldl1 Tree.trans [anpz,anzr,anrw] };
@@ -245,9 +277,10 @@ strongLEq aLp alr = applySymmAxiom alr $ \alr -> do
       addEQ (p,fv);
       addLT (w,fv);
       liftSearch $ totalNodeCount %= (+1);
-      anLw <- branchM $ pushAndCont weak aLw;
-      anrw <- branchM $ pushAndCont weak $ Atom False $ wrap $ PEq r w;
-      ansv <- mapM (\(x,y) -> branchM $ pushAndCont weak $ Atom False $ wrap $ PEq x y) (zip s v);
+      anLw:anrw:ansv <- allM (
+        pushAndCont weak aLw :
+        (pushAndCont weak $ Atom False $ wrap $ PEq r w) :
+        map (\(x,y) -> pushAndCont weak $ Atom False $ wrap $ PEq x y) (zip s v));
       let { anpfv = (Atom False $ wrap $ PEq p fv, Tree.refl p) };
       let { anfvfs = Tree.symm (Tree.cong f ansv) };
       let { anfsr = (Atom False $ wrap $ PEq fs r, Tree.Leaf) };
@@ -270,8 +303,9 @@ strongEqL alr aLp = applySymmAxiom alr $ \alr -> do
       addLT (r,l);
       addEQ (r,w);
       liftSearch $ totalNodeCount %= (+1);
-      anLw <- branchM $ pushAndCont weak aLw;
-      ansv <- mapM (\(x,y) -> branchM $ pushAndCont weak $ Atom False $ wrap $ PEq x y) (zip s v);
+      anLw:ansv <- allM (
+        pushAndCont weak aLw :
+        map (\(x,y) -> pushAndCont weak $ Atom False $ wrap $ PEq x y) (zip s v));
       let { anpfv = Tree.cong f ansv };
       let { anfvl = (Atom False $ wrap $ PEq fv l, Tree.refl fv) };
       let { anlr = (Atom False $ wrap $ PEq l r, Tree.Leaf) };
@@ -363,7 +397,7 @@ prove form nodesLimit = do
   let {
     -- negate the input form
     clauses = toNotAndForm form;
-    initialState = TabState kbo clauses 0 0 nodesLimit Set.empty Map.empty;
+    initialState = TabState lpoOrder clauses 0 0 nodesLimit Set.empty Map.empty;
     -- start with expand step
     runCont = ContM.runContT expand return;
     runBranch = StateM.runStateT runCont (BranchState [] []);
