@@ -48,7 +48,7 @@ atomToTerm a = wrap $ TFun (if a^.atom'sign then 1 else 0) [wrap $ TFun (fromInt
 termToAtom (unwrap -> TFun sign [unwrap -> TFun pn args]) = Atom (sign==1) ((SPred (fromIntegral pn) args)^.from pred'spred)
 
 -- negated Conjunctive Normal Form
-newtype OrClause = OrClause { _orClause'atoms :: [Atom] } deriving(Ord,Eq)
+newtype OrClause = OrClause { _orClause'atoms :: [Atom] } deriving(Ord,Eq,Semigroup,Monoid)
 makeLenses ''OrClause
 instance Show OrClause where { show c = intercalate " \\/ " $ map show (c^.orClause'atoms) }
 
