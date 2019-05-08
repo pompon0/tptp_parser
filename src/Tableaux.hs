@@ -83,6 +83,29 @@ anyM choices = ContM.ContT (\cont -> foldl mplus mzero (map cont choices))
 branchM :: (MonadState s m) => m a -> m a
 branchM task = do { s <- get; r <- task; put s; return r }
 
+allM :: [M a] -> M [a]
+allM [] = return []
+allM [t] = branchM t >>= return.(:[])
+allM tasks = do
+  let n = length tasks
+  used <- liftTab $ use nodesUsed
+  limit <- liftTab $ use nodesLimit
+  let perTask = (limit-used) `div` n
+  let h:t = tasks
+  join $ anyM [
+    do {
+      liftTab $ nodesLimit .= used + perTask;
+      rh <- branchM h;
+      liftTab $ nodesLimit .= limit;
+      allM t >>= return.(rh:);
+    },
+    do {
+      liftTab $ nodesLimit .= limit - (perTask+1);
+      rt <- allM t;
+      liftTab $ nodesLimit .= limit;
+      branchM h >>= return.(:rt);
+    }]
+
 throw :: M a
 throw = do
   lift $ lift $ lift $ lift $ failCount %= (+1)
@@ -142,7 +165,7 @@ pushAndCont cont a = do
 start :: M ProofTree
 start = do
   atoms <- (liftTab $ use $ clauses) >>= anyM >>= allocVars
-  mapM (branchM.pushAndCont expand) atoms >>= return . Expand
+  allM (map (pushAndCont expand) atoms) >>= return . Expand
 
 expand :: M ProofTree
 expand = do
@@ -154,8 +177,8 @@ expand = do
   let h' = h & atom'args.traverse %~ eval ms & atom'sign %~ not
   (l,x,r) <- (anyM $ selector h') >>= allocVars'SelClause
   bx <- branchM $ pushAndCont strong x
-  bl <- mapM (branchM.pushAndCont weak) l
-  br <- mapM (branchM.pushAndCont weak) r
+  b <- allM (map (pushAndCont weak) (l ++ r))
+  let (bl,br) = splitAt (length l) b
   return $ Expand $ bl <> [bx] <> br
 
 addEQ :: (Term,Term) -> M ()
