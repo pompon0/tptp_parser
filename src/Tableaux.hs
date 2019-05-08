@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE ViewPatterns #-}
 module Tableaux(proveAxiomatic,proveBrand) where
 
 import Prelude hiding(pred)
@@ -18,8 +19,9 @@ import qualified DiscTree
 import DiscTree(match)
 import Brand
 import EqAxioms
+import KBO(kbo)
 
-import Control.Monad(mplus,mzero,MonadPlus,join,foldM)
+import Control.Monad(mplus,mzero,MonadPlus,join,foldM,when)
 import Control.Monad.State.Class(MonadState,get,put)
 import qualified Control.Monad.Trans.Cont as ContM
 import qualified Control.Monad.Trans.State.Lazy as StateM
@@ -58,12 +60,14 @@ makeLenses ''SearchState
 type SelClause = ([Atom],Atom,[Atom],OrClauseCEE)
 
 data TabState = TabState {
+  _reductionOrder :: Int -> (Term,Term) -> Bool, -- a < b ?
   _clauses :: [OrClauseCEE],
   _clausesSelector :: Atom -> [SelClause],
   _nextVar :: VarName,
   -- we are limiting nodes, not vars, because it is possible to create an infinite branch of
   -- clauses without variables, see for example: (!p or !q) and (p or q)
   _nodesUsed, _nodesLimit :: Int,
+  _ineq :: Set.Set Atom,
   _mguState :: Valuation, --_eq :: Set.Set (Term,Term)
   _usedClauses :: [OrClauseCEE],
   _ctx :: [String]
@@ -154,7 +158,7 @@ selClause'subst f (l,x,r,c) =
 allocVars :: OrClauseCEE -> M [Atom]
 allocVars cla = do
   (cla',_) <- StateM.runStateT (orClauseCEE'subst allocM cla) Map.empty
-  --TODO: add constraints
+  mapM_ addIneq (cla'^.orClauseCEE'redAtoms.orClause'atoms)
   liftTab $ usedClauses %= (cla':)
   return $ cla'^.orClauseCEE'atoms.orClause'atoms
 
@@ -199,10 +203,38 @@ expand = do
   let (bl,br) = splitAt (length l) b
   return $ Expand $ bl <> [bx] <> br
 
+---------------------------------
+
+validateIneq :: Atom -> M ()
+validateIneq (Atom sign (unwrap -> PCustom redLTPredName [l,r])) = do
+  s <- liftTab $ use mguState
+  ord <- liftTab $ use reductionOrder
+  varCount <- liftTab $ use nextVar >>= return.fromIntegral
+  let (l',r') = (eval s l, eval s r)
+  -- "l<r or C" => we need to ensure "l>=r" => if "l<r" throw
+  if sign then
+    when (ord varCount (l',r')) throw
+  -- "l>=r or C" => we need to ensure "l<r" => if "l>r" or "l=r" throw
+  else
+    when (l' == r' || ord varCount (r',l')) throw
+
 addEQ :: (Term,Term) -> M ()
 addEQ lr = do
   s <- liftTab $ use mguState
   case MGU.runMGU lr s of { Nothing -> throw; Just s' -> liftTab $ mguState .= s' }
+  lrs <- liftTab $ use ineq
+  mapM_ validateIneq lrs
+
+addIneq :: Atom -> M ()
+addIneq a = case a of {
+  -- "a!=b or C" => we need to ensure "a=b" => unify a and b
+  Atom False (unwrap -> PCustom redEqPredName [l,r]) -> addEQ (l,r);
+  _ -> do {
+    liftTab $ ineq %= Set.insert a;
+    validateIneq a
+  }
+}
+
 
 --------------------------------
 
@@ -256,13 +288,19 @@ proveAxiomatic form = let {
 proveBrand :: OrForm -> Int -> IO (Maybe Proof)
 proveBrand form = proveLoop $ cee (toNotAndForm form)
 
+emptyOrder :: Int -> (Term,Term) -> Bool
+emptyOrder _ _ = False
+
+lpoOrder :: Int -> (Term,Term) -> Bool
+lpoOrder _ (l,r) = lpo l r
+
 -- returns a DNF of terminal clauses which implies input form (and is always true)
 prove :: NotAndFormCEE  -> Int -> IO (Maybe Proof, SearchState)
 prove form nodesLimit = do
   let {
     -- negate the input form
     clausesSelector = makeClausesSelector form;
-    initialState = TabState (form^.notAndFormCEE'orClausesCEE) clausesSelector 0 0 nodesLimit Map.empty [] [];
+    initialState = TabState kbo (form^.notAndFormCEE'orClausesCEE) clausesSelector 0 0 nodesLimit Set.empty Map.empty [] [];
     -- start with expand step
     runCont = ContM.runContT start return;
     runBranch = StateM.runStateT runCont (BranchState []);
