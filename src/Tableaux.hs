@@ -4,7 +4,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
-module Tableaux(prove,proveLoop) where
+module Tableaux(proveAxiomatic,proveBrand) where
 
 import Prelude hiding(pred)
 import Lib
@@ -16,6 +16,8 @@ import LPO(lpo)
 import qualified MGU
 import qualified DiscTree
 import DiscTree(match)
+import Brand
+import EqAxioms
 
 import Control.Monad(mplus,mzero,MonadPlus,join,foldM)
 import Control.Monad.State.Class(MonadState,get,put)
@@ -52,15 +54,18 @@ data SearchState = SearchState {
 } deriving(Generic,NFData)
 makeLenses ''SearchState
 
+
+type SelClause = ([Atom],Atom,[Atom],OrClauseCEE)
+
 data TabState = TabState {
-  _clauses :: [OrClause],
-  _clausesSelector :: Atom -> [([Atom],Atom,[Atom])],
+  _clauses :: [OrClauseCEE],
+  _clausesSelector :: Atom -> [SelClause],
   _nextVar :: VarName,
   -- we are limiting nodes, not vars, because it is possible to create an infinite branch of
   -- clauses without variables, see for example: (!p or !q) and (p or q)
   _nodesUsed, _nodesLimit :: Int,
   _mguState :: Valuation, --_eq :: Set.Set (Term,Term)
-  _usedClauses :: [AndClause],
+  _usedClauses :: [OrClauseCEE],
   _ctx :: [String]
 }
 makeLenses ''TabState
@@ -126,25 +131,38 @@ allocM name = do
     Nothing -> do { t <- lift $ allocVar; put (Map.insert name t varMap); return t }
     Just t -> return t
 
-atom'subst = atom'pred.pred'spred.spred'args.traverse.term'subst
-orClause'subst = orClause'atoms.traverse.atom'subst
+atom'subst :: Traversal Atom Atom VarName Term
+atom'subst = atom'args.traverse.term'subst
 
-type SelClause = ([Atom],Atom,[Atom])
-selClause'atom :: Traversal' SelClause Atom
-selClause'atom f (l,x,r) = pure (,,) <*> traverse f l <*> f x <*> traverse f r
-selClause'subst = selClause'atom.atom'subst
+orClauseCEE'atom :: Traversal' OrClauseCEE Atom
+orClauseCEE'atom f (OrClauseCEE atoms redAtoms derivation) = pure OrClauseCEE
+  <*> (orClause'atoms.traverse) f atoms
+  <*> (orClause'atoms.traverse) f redAtoms
+  <*> (traverse.orClause'atoms.traverse) f derivation
+orClauseCEE'subst :: Traversal OrClauseCEE OrClauseCEE VarName Term
+orClauseCEE'subst = orClauseCEE'atom.atom'subst
+orClause'term = orClause'atoms.traverse.atom'args.traverse
 
-allocVars :: OrClause -> M [Atom]
+selClause'subst :: Traversal SelClause SelClause VarName Term
+selClause'subst f (l,x,r,c) =
+  pure (,,,) <*>
+  (traverse.atom'subst) f l <*>
+  atom'subst f x <*>
+  (traverse.atom'subst) f r <*>
+  orClauseCEE'subst f c
+
+allocVars :: OrClauseCEE -> M [Atom]
 allocVars cla = do
-  (cla2,_) <- StateM.runStateT (orClause'subst allocM cla) Map.empty
-  liftTab $ usedClauses %= (notOrClause cla2:)
-  return $ cla2^.orClause'atoms
+  (cla',_) <- StateM.runStateT (orClauseCEE'subst allocM cla) Map.empty
+  --TODO: add constraints
+  liftTab $ usedClauses %= (cla':)
+  return $ cla'^.orClauseCEE'atoms.orClause'atoms
 
 allocVars'SelClause :: SelClause -> M SelClause
 allocVars'SelClause sc = do
-  (cs'@(l,x,r),_) <- StateM.runStateT (selClause'subst allocM sc) Map.empty
-  liftTab $ usedClauses %= ((notOrClause $ OrClause $ l <> [x] <> r):)
-  return cs'
+  (sc'@(_,_,_,cla),_) <- StateM.runStateT (selClause'subst allocM sc) Map.empty
+  liftTab $ usedClauses %= (cla:)
+  return sc'
 
 allocNode :: M ()
 allocNode = do
@@ -175,7 +193,7 @@ expand = do
   selector <- liftTab $ use clausesSelector
   ms <- liftTab $ use mguState
   let h' = h & atom'args.traverse %~ eval ms & atom'sign %~ not
-  (l,x,r) <- (anyM $ selector h') >>= allocVars'SelClause
+  (l,x,r,_) <- (anyM $ selector h') >>= allocVars'SelClause
   bx <- branchM $ pushAndCont strong x
   b <- allM (map (pushAndCont weak) (l ++ r))
   let (bl,br) = splitAt (length l) b
@@ -217,10 +235,10 @@ weak = do
 
 --------------------------------
 
-makeClausesSelector :: NotAndForm -> (Atom -> [([Atom],Atom,[Atom])])
-makeClausesSelector f = let { tree = DiscTree.build [(x^.atom'term,(l,x,r)) |
-    cla <- f^.notAndForm'orClauses,
-    (l,x,r) <- select (cla^.orClause'atoms)]
+makeClausesSelector :: NotAndFormCEE -> (Atom -> [SelClause])
+makeClausesSelector f = let { tree = DiscTree.build [(x^.atom'term,(l,x,r,cla)) |
+    cla <- f^.notAndFormCEE'orClausesCEE,
+    (l,x,r) <- select (cla^.orClauseCEE'atoms.orClause'atoms)]
   } in \a -> tree^..match (a^.atom'term)
 
 {-makeClausesSelector f = let { x = [lxr |
@@ -229,14 +247,22 @@ makeClausesSelector f = let { tree = DiscTree.build [(x^.atom'term,(l,x,r)) |
   } in \a -> x
 -}
 
+proveAxiomatic :: OrForm -> Int -> IO (Maybe Proof)
+proveAxiomatic form = let {
+  NotAndForm clauses = toNotAndForm (appendEqAxioms form);
+  clauses' = map (\cla -> OrClauseCEE cla mempty [cla]) clauses
+} in proveLoop (NotAndFormCEE clauses')
+
+proveBrand :: OrForm -> Int -> IO (Maybe Proof)
+proveBrand form = proveLoop $ cee (toNotAndForm form)
+
 -- returns a DNF of terminal clauses which implies input form (and is always true)
-prove :: OrForm -> Int -> IO (Maybe Proof, SearchState)
+prove :: NotAndFormCEE  -> Int -> IO (Maybe Proof, SearchState)
 prove form nodesLimit = do
   let {
     -- negate the input form
-    clauses = toNotAndForm (appendEqAxioms form);
-    clausesSelector = makeClausesSelector clauses;
-    initialState = TabState (clauses^.notAndForm'orClauses) clausesSelector 0 0 nodesLimit Map.empty [] [];
+    clausesSelector = makeClausesSelector form;
+    initialState = TabState (form^.notAndFormCEE'orClausesCEE) clausesSelector 0 0 nodesLimit Map.empty [] [];
     -- start with expand step
     runCont = ContM.runContT start return;
     runBranch = StateM.runStateT runCont (BranchState []);
@@ -250,9 +276,9 @@ prove form nodesLimit = do
     Left () -> return (Nothing,searchState)
     Right ((proofTree,bs),s) -> do
       printE proofTree
-      return (Just $ OrForm $ s^.usedClauses & traverse.andClause'term %~ ground . eval (s^.mguState), searchState)
+      return (Just $ toOrForm $ NotAndForm $ (s^..usedClauses.traverse.orClauseCEE'derivation.traverse) & traverse.orClause'term %~ ground . eval (s^.mguState), searchState)
 
-proveLoop :: OrForm -> Int -> IO (Maybe Proof)
+proveLoop :: NotAndFormCEE -> Int -> IO (Maybe Proof)
 proveLoop f limit = let
   rec f i = do
     t0 <- Clock.getTime Clock.ProcessCPUTime

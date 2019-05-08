@@ -17,6 +17,7 @@ import Control.Lens(makeLenses,Traversal',Traversal,Lens',from)
 import Data.Monoid(Endo(..))
 import Data.Functor.Const(Const(..))
 import Valid(counterExample)
+import EqAxioms
 
 import qualified Control.Monad.Trans.Except as ExceptM
 
@@ -38,11 +39,11 @@ andClause'term = andClause'atoms.traverse.atom'args.traverse
 --check :: Monad m => DNF.OrForm -> Proof -> m ()
 check :: DNF.OrForm -> Proof -> IO ()
 check problem proof =  do
-  let proofEssence = OrForm $ filter (not. DNF.isEqAxiom) (proof^.orForm'andClauses)
+  let proofEssence = OrForm $ filter (not. isEqAxiom) (proof^.orForm'andClauses)
   printE "problem:"
   printE problem
   printE "problem with axioms:"
-  printE (DNF.appendEqAxioms problem)
+  printE (appendEqAxioms problem)
   printE "proof:"
   printE proof
   printE "proofEssence:"

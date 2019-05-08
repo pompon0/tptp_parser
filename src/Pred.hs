@@ -38,8 +38,9 @@ term'subterm g t@(val -> TVar _) = g t *> pure t
 data SPred = SPred { _spred'name :: PredName, _spred'args :: [Term] }
 makeLenses ''SPred
 
-eqPredName :: PredName
-eqPredName = -1
+eqPredName = -1 :: PredName
+redEQPredName = -2 :: PredName
+redLTPredName = -3 :: PredName
 
 wrap :: HashSeq a => a -> WithHash a
 wrap = withHash
