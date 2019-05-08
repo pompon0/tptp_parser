@@ -11,6 +11,7 @@ import qualified LazyParamTest
 import qualified DiscTreeTest
 import qualified GraphTest
 import qualified KBOTest
+import qualified BrandTest
 
 tests = testGroup "all" [
   --ParserTest.tests,
@@ -21,4 +22,5 @@ tests = testGroup "all" [
   LazyParamTest.tests,
   DiscTreeTest.tests,
   GraphTest.tests,
-  KBOTest.tests]
+  KBOTest.tests,
+  BrandTest.tests]

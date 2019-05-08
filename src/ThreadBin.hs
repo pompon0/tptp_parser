@@ -26,7 +26,7 @@ enumOption name def = defineOption enumOptionType
       Nothing -> Left (show s ++ " is not in " ++ setString ++ ".")
       Just x -> Right x
 
-data Prover = LazyParam | Tableaux deriving(Bounded,Enum,Show)
+data Prover = LazyParam | BrandTableau | AxiomaticTableau deriving(Bounded,Enum,Show)
 data TestSet = Simple | Interesting | All deriving(Bounded,Enum,Show)
 
 data Args = Args {
@@ -45,7 +45,8 @@ proveAndCheck :: Prover -> (String, DNF.OrForm) -> (String, IO String)
 proveAndCheck prover (name, problem) = (,) name $ do
   mProof <- (case prover of {
     LazyParam -> LazyParam.proveLoop;
-    Tableaux -> Tableaux.proveLoop;
+    BrandTableau -> Tableaux.proveBrand;
+    AxiomaticTableau -> Tableaux.proveAxiomatic;
   }) problem 100
   case mProof of
     Nothing -> return "proof not found"
