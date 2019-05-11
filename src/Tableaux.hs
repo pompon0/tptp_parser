@@ -32,7 +32,7 @@ import qualified Data.Map as Map
 import qualified Data.Set.Monad as SetM
 import Control.Lens(makeLenses, Fold, Traversal, Traversal', (&), (%~), (.~), over, view, use, (.=), (%=),(^.),(^..))
 import Data.List.Utils (replace)
-import Data.List(sort,nub)
+import Data.List(sort,nub,tails)
 import Control.Concurrent
 import qualified System.Clock as Clock
 import Control.DeepSeq(NFData,force)
@@ -75,7 +75,8 @@ data TabState = TabState {
 makeLenses ''TabState
 
 data BranchState = BranchState {
-  _branch :: [Atom]
+  _branch :: [Atom],
+  _lemmas :: [Atom]
 }
 makeLenses ''BranchState
 
@@ -179,15 +180,21 @@ withCtx :: String -> M a -> M a
 --withCtx msg cont = liftTab (ctx %= (msg:)) >> cont
 withCtx msg cont = cont
 
-pushAndCont :: M ProofTree -> Atom -> M ProofTree
-pushAndCont cont a = do
-  liftBranch $ branch %= (a:)
-  withCtx (show a) (showCtx >> cont) >>= return . Node a
+-- atoms is assumed to be nonempty
+-- assume all the atoms but the first one are false
+-- assume the first atom is true
+-- run cont
+pushAndCont :: M ProofTree -> [Atom] -> M ProofTree
+pushAndCont cont (trueAtom:falseAtoms) = do
+  liftBranch $ branch %= (trueAtom:)
+  liftBranch $ lemmas %= (((trueAtom & atom'sign %~ not):falseAtoms)++)
+  withCtx (show trueAtom) (showCtx >> cont) >>= return . Node trueAtom
 
 start :: M ProofTree
 start = do
   atoms <- (liftTab $ use $ clauses) >>= anyM >>= allocVars
-  allM (map (pushAndCont expand) atoms) >>= return . Expand
+  let expandBranches = init (tails atoms) -- all suffixes, except the empty one
+  mapM (branchM.pushAndCont expand) expandBranches >>= return . Expand
 
 expand :: M ProofTree
 expand = do
@@ -198,8 +205,9 @@ expand = do
   ms <- liftTab $ use mguState
   let h' = h & atom'args.traverse %~ eval ms & atom'sign %~ not
   (l,x,r,_) <- (anyM $ selector h') >>= allocVars'SelClause
-  bx <- branchM $ pushAndCont strong x
-  b <- allM (map (pushAndCont weak) (l ++ r))
+  bx <- branchM $ pushAndCont strong [x]
+  let weakBranches = take (length (l++r)) (tails (l++r++[x]))
+  b <- mapM (branchM.pushAndCont weak) weakBranches
   let (bl,br) = splitAt (length l) b
   return $ Expand $ bl <> [bx] <> br
 
@@ -257,7 +265,7 @@ strong = do
 
 weak :: M ProofTree
 weak = do
-  path <- liftBranch $ use branch
+  path <- liftBranch $ use lemmas
   join $ anyM [
     case path of {
       a1:t -> join $ anyM [mapM addEQ (zip (a1^.atom'args) (a2^.atom'args)) >> (withCtx "WEAK" showCtx) >> return Weak | a2 <- t, opposite a1 a2];
@@ -303,7 +311,7 @@ prove form nodesLimit = do
     initialState = TabState kbo (form^.notAndFormCEE'orClausesCEE) clausesSelector 0 0 nodesLimit Set.empty Map.empty [] [];
     -- start with expand step
     runCont = ContM.runContT start return;
-    runBranch = StateM.runStateT runCont (BranchState []);
+    runBranch = StateM.runStateT runCont (BranchState [] []);
     runTab = StateM.runStateT runBranch initialState;
     runExcept = ExceptM.runExceptT runTab;
     runSearch = StateM.runStateT runExcept (SearchState 0 0);
