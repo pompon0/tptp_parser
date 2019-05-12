@@ -10,7 +10,7 @@ import Data.List(intercalate)
 import Lib
 
 import qualified DNF
-import ConvBin(pullInteresting,pullSimple,pullProtoTar)
+import ConvBin(pullInteresting,pullSimple,pullAverage,pullProtoTar)
 import ParserBin(toDNF)
 import qualified Tableaux
 import qualified LazyParam
@@ -27,7 +27,7 @@ enumOption name def = defineOption enumOptionType
       Just x -> Right x
 
 data Prover = LazyParam | BrandTableau | AxiomaticTableau deriving(Bounded,Enum,Show)
-data TestSet = Simple | Interesting | All deriving(Bounded,Enum,Show)
+data TestSet = Simple | Average | Interesting | All deriving(Bounded,Enum,Show)
 
 data Args = Args {
   prover :: Prover,
@@ -61,6 +61,7 @@ main = runCommand $ \(args :: Args) _ -> do
   --forms <- readProtoTar tarPath >>= mapM (\(k,p) -> assert (toDNF p) >>= return . (,) k)
   forms <- (case testSet args of {
     Simple -> pullSimple;
+    Average -> pullAverage;
     Interesting -> pullInteresting;
     All -> pullProtoTar;
   })
