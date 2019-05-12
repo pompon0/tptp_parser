@@ -182,7 +182,8 @@ validateLT (l,r) = do
   s <- liftTab $ use mguState
   ord <- liftTab $ use reductionOrder
   varCount <- liftTab $ use nextVar
-  if ord (fromIntegral varCount) (eval s r, eval s l) then throw else return ()
+  let (l',r') = (eval s l, eval s r)
+  if l'==r' || ord (fromIntegral varCount) (r,l)  then throw else return ()
 
 validateAcyclic :: M ()
 validateAcyclic = do

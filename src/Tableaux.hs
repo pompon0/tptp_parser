@@ -303,7 +303,7 @@ prove form nodesLimit = do
   let {
     -- negate the input form
     clausesSelector = makeClausesSelector form;
-    initialState = TabState kbo (form^.notAndFormCEE'orClausesCEE) clausesSelector 0 0 nodesLimit Set.empty Map.empty [] [];
+    initialState = TabState lpoOrder (form^.notAndFormCEE'orClausesCEE) clausesSelector 0 0 nodesLimit Set.empty Map.empty [] [];
     -- start with expand step
     runCont = ContM.runContT start return;
     runBranch = StateM.runStateT runCont (BranchState []);

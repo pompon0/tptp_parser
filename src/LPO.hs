@@ -22,14 +22,17 @@ import Pred
 --   and inductively lexicographic order decides which is bigger
 
 -- <=
-lpo a b = case (unwrap a, unwrap b) of
+lpoE a b = case (unwrap a, unwrap b) of
   (_,TVar x) -> a == b
-  (TVar x, TFun f args) -> any (lpo a) args
+  (TVar x, TFun f args) -> any (lpoE a) args
   (TFun af aa, TFun bf ba) -> let
-    r False (ah:at) (bh:bt) = (lpo ah bh) && r (ah/=bh) at bt
+    r False (ah:at) (bh:bt) = (lpoE ah bh) && r (ah/=bh) at bt
     r False _ _ = True -- actually lists should be equal
-    r True at _ = all (\x -> x/=b && lpo x b) at
-    in any (lpo a) ba || (af<=bf && r (af/=bf) aa ba)
+    r True at _ = all (\x -> x/=b && lpoE x b) at
+    in any (lpoE a) ba || (af<=bf && r (af/=bf) aa ba)
+
+-- <
+lpo a b = a/=b && lpoE a b
 
 ---------------------------------------------------------------
 
