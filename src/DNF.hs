@@ -51,14 +51,18 @@ newtype OrClause = OrClause { _orClause'atoms :: [Atom] } deriving(Ord,Eq,Semigr
 makeLenses ''OrClause
 instance Show OrClause where { show c = intercalate " \\/ " $ map show (c^.orClause'atoms) }
 
-newtype NotAndForm = NotAndForm { _notAndForm'orClauses :: [OrClause] } deriving(Show,Ord,Eq,Semigroup,Monoid)
+newtype NotAndForm = NotAndForm { _notAndForm'orClauses :: [OrClause] } deriving(Ord,Eq,Semigroup,Monoid)
 makeLenses ''NotAndForm
+instance Show NotAndForm where { show f = unlines $ map show $ f^.notAndForm'orClauses }
 
 -- Disjunctive Normal Form
 newtype AndClause = AndClause { _andClause'atoms :: [Atom] } deriving(Ord,Eq)
 makeLenses ''AndClause
+instance Show AndClause where { show c = intercalate " /\\ " $ map show (c^.andClause'atoms) }
+
 newtype OrForm = OrForm { _orForm'andClauses :: [AndClause] } deriving(Ord,Eq,Semigroup,Monoid)
 makeLenses ''OrForm
+instance Show OrForm where { show f = unlines $ map show $ f^.orForm'andClauses }
 
 toNotAndForm :: OrForm -> NotAndForm
 toNotAndForm (OrForm cla) = NotAndForm (map notAndClause cla)
@@ -71,11 +75,6 @@ notAndClause (AndClause atoms) = OrClause (atoms & traverse.atom'sign %~ not)
 
 filterSign :: Bool -> AndClause -> [Pred]
 filterSign s = toListOf (andClause'atoms.traverse.filtered (\a -> a^.atom'sign == s).atom'pred)
-
-instance Show OrForm where
-  show f = unlines $ map show $ f^.orForm'andClauses
-instance Show AndClause where
-  show c = intercalate " /\\ " $ map show (c^.andClause'atoms)
 
 sumOr (OrForm x) (OrForm y) = OrForm (Ordered.union x y)
 prodOr (OrForm fa) (OrForm fb) = OrForm $ Ordered.nubSort [AndClause (Ordered.union ca cb) | AndClause ca <- fa, AndClause cb <- fb]

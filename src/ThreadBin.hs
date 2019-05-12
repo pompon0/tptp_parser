@@ -32,7 +32,8 @@ data TestSet = Simple | Interesting | All deriving(Bounded,Enum,Show)
 data Args = Args {
   prover :: Prover,
   testSet :: TestSet,
-  timeoutSec :: Int
+  timeoutSec :: Int,
+  testName :: String
 } deriving(Show)
 
 instance Options Args where
@@ -40,6 +41,7 @@ instance Options Args where
     <*> enumOption "prover" LazyParam
     <*> enumOption "test_set" Simple
     <*> simpleOption "timeout_sec" 5 ""
+    <*> simpleOption "test_name" "" ""
 
 proveAndCheck :: Prover -> (String, DNF.OrForm) -> (String, IO String)
 proveAndCheck prover (name, problem) = (,) name $ do
@@ -47,7 +49,7 @@ proveAndCheck prover (name, problem) = (,) name $ do
     LazyParam -> LazyParam.proveLoop;
     BrandTableau -> Tableaux.proveBrand;
     AxiomaticTableau -> Tableaux.proveAxiomatic;
-  }) problem 100
+  }) problem 200
   case mProof of
     Nothing -> return "proof not found"
     Just proof -> do
@@ -61,7 +63,9 @@ main = runCommand $ \(args :: Args) _ -> do
     Simple -> pullSimple;
     Interesting -> pullInteresting;
     All -> pullProtoTar;
-  }) >>= mapM (\(k,p) -> assert (toDNF p) >>= return . (,) k)
+  })
+  let forms' = if testName args/="" then filter (\(k,_) -> k==testName args) forms else forms
+  forms'' <- mapM (\(k,p) -> assert (toDNF p) >>= return . (,) k) forms'
   let timeout_us = fromIntegral $ (timeoutSec args)*1000000
-  killable $ runInParallelWithTimeout timeout_us $ map (proveAndCheck $ prover args) forms
+  killable $ runInParallelWithTimeout timeout_us $ map (proveAndCheck $ prover args) forms''
   return ()

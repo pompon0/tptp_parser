@@ -15,13 +15,13 @@ tests = testGroup "TableauxTest" (
   makeTests "brand" Tableaux.proveBrand <>
   makeTests "axiomatic" Tableaux.proveAxiomatic)
 
-makeTests proverName prover = map (\(name,tptpRaw) -> testCase (proverName ++ "::" ++ name) $ runTest prover tptpRaw) P.problems
+makeTests proverName prover = map (\(name,tptpRaw) -> testCase (proverName ++ "." ++ name) $ runTest prover tptpRaw) P.problems
 
 runTest prover tptpString = do
   tptpFile <- Trace.evalIO (Parser.parse tptpString) >>= assert
   form <- assert $ toDNF tptpFile
   --putStrLn ("\n=== BEGIN FORM ===\n" ++ show form ++ "\n=== END FORM ===\n")
-  proof <- prover form 10 >>= assertMaybe
+  proof <- prover form 15 >>= assertMaybe
   --putStrLn "problem"
   --print form
   --putStrLn "proof source"

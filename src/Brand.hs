@@ -99,9 +99,18 @@ mt cla = let {
         oc (eq l l' : map (\(t,x) -> neq t x) (zip args args')),
         -- f(t_i) = f(x_i) and r = x and f(t_i) = r  =>  f(x_i) = x
         oc [a', na, neq l l', neq r r']
-      ]<> r'atoms <> mconcat atoms;
+      ] <> r'atoms <> mconcat atoms;
   };
-  mt'Atom eqXY = return $ occ (oc [eqXY]) mempty mempty;
+  mt'Atom a@(Atom sign (unwrap -> PEq l@(unwrap -> TVar _) r@(unwrap -> TFun _ _))) = do {
+    (r',r'atoms) <- mt'Term r;
+    let { a' = Atom sign $ wrap $ PEq l r' };
+    let { na = a & atom'sign %~ not };
+    return $ occ (oc [a']) mempty [
+      -- l = r and r = r'  =>  l = r'
+      oc [a', na, neq r r']
+    ] <> r'atoms;
+  };
+  mt'Atom a@(Atom sign (unwrap -> PEq (unwrap -> TVar _) (unwrap -> TVar _))) = return $ occ (oc [a]) mempty mempty;
   var (unwrap -> TVar vn) = Just vn;
   var _ = Nothing;
   maxVar = foldl max (-1) $ cla^..orClauseCEE'atoms.orClause'atoms.traverse.atom'args.traverse.term'subterm.to var.traverse;

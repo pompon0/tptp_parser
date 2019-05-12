@@ -187,6 +187,7 @@ pushAndCont cont a = do
 start :: M ProofTree
 start = do
   atoms <- (liftTab $ use $ clauses) >>= anyM >>= allocVars
+  when (any (^.atom'sign) atoms) throw
   allM (map (pushAndCont expand) atoms) >>= return . Expand
 
 expand :: M ProofTree
@@ -286,7 +287,9 @@ proveAxiomatic form = let {
 } in proveLoop (NotAndFormCEE clauses')
 
 proveBrand :: OrForm -> Int -> IO (Maybe Proof)
-proveBrand form = proveLoop $ cee (toNotAndForm form)
+proveBrand form n = do
+  printE $ NotAndForm $ cee (toNotAndForm form) ^.. notAndFormCEE'orClausesCEE.traverse.orClauseCEE'atoms
+  proveLoop (cee (toNotAndForm form)) n
 
 emptyOrder :: Int -> (Term,Term) -> Bool
 emptyOrder _ _ = False
