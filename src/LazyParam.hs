@@ -168,6 +168,11 @@ showCtx = return ()
 pushAndCont :: M Tree.Node -> Atom -> M (Atom,Tree.Node)
 pushAndCont cont a = branch %= (a:) >> withCtx (show a) cont >>= return.((,) a)
 
+start :: M Tree.Node
+start = do
+  cla <- anyClause
+  allM (map (pushAndCont weak) cla) >>= return . Tree.expand
+
 expand :: M Tree.Node
 expand = do
   allocNode
@@ -319,20 +324,17 @@ strongEqL alr aLp = applySymmAxiom alr $ \alr -> do
 strong :: M Tree.Node
 strong = withCtx "strong" $ do
   allocNode
-  path <- use branch
+  (a:b:_) <- use branch
   showCtx
-  case path of
-    [] -> throw
-    [a] -> expand
-    a:b:_ -> join $ anyM [
-      -- S || \Gamma,!P[r],P[s]
-      -- S || \Gamma,P[r],!P[s]
-      strongPred b a,
-      -- S || \Gamma, L[p], z~r
-      -- S || \Gamma, L[p], f(s)~r
-      strongLEq b a,
-      -- S || \Gamma, l~r, L[f(s)]
-      strongEqL b a]
+  join $ anyM [
+    -- S || \Gamma,!P[r],P[s]
+    -- S || \Gamma,P[r],!P[s]
+    strongPred b a,
+    -- S || \Gamma, L[p], z~r
+    -- S || \Gamma, L[p], f(s)~r
+    strongLEq b a,
+    -- S || \Gamma, l~r, L[f(s)]
+    strongEqL b a]
 
 -- S || \Gamma L[p],\Delta,l~r
 weakLEq :: Atom -> Atom -> M Tree.Node
@@ -400,7 +402,7 @@ prove form nodesLimit = do
     clauses = toNotAndForm form;
     initialState = TabState lpoOrder clauses 0 0 nodesLimit Set.empty Map.empty;
     -- start with expand step
-    runCont = ContM.runContT expand return;
+    runCont = ContM.runContT start return;
     runBranch = StateM.runStateT runCont (BranchState [] []);
     runTab = StateM.runStateT runBranch initialState;
     runExcept = ExceptM.runExceptT runTab;

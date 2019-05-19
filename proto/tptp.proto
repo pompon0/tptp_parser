@@ -5,8 +5,13 @@ message File {
   repeated Input input = 1;
 }
 
-// currently only FOF formula is supported
+// currently only FOF and CNF formulas are supported
 message Input {
+  enum Language {
+    UNKNOWN_Language = 0;
+    FOF = 1;
+    CNF = 2;
+  }
   enum Role {
     UNKNOWN = 0;
     AXIOM = 1;
@@ -26,6 +31,7 @@ message Input {
   }
   
   string name = 1;
+  Language language = 4;
   Role role = 2;
   Formula formula = 3;
 }
@@ -54,6 +60,8 @@ message Formula {
       XOR = 6;
       NOR = 7;
       NAND = 8;
+      TRUE = 9;
+      FALSE = 10;
     }
     Type type = 1;
     repeated Formula args = 2; 

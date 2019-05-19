@@ -6,7 +6,7 @@ import Test.Tasty.HUnit (Assertion,testCaseSteps,testCase,assertFailure,assertBo
 import Data.Either
 
 import ParserBin(toDNF)
-import ConvBin(pullInteresting)
+import ConvBin(pullAll,pullAllCNF)
 import qualified Parser
 import qualified Trace
 import qualified Form
@@ -55,5 +55,6 @@ stats f = do
 
 test step = do
   let testEntry (path,tptpFile) = assert (toDNF tptpFile) :: IO OrForm
-  pullInteresting >>= mapM testEntry >>= stats
+  pullAll >>= mapM testEntry >>= stats
+  pullAllCNF >>= mapM testEntry >>= stats
 

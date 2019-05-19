@@ -8,6 +8,7 @@ import Data.ProtoLens(defMessage)
 import Lens.Micro((.~),(^.),(&))
 import Lens.Labels.Unwrapped ()
 
+import Lib
 import qualified Data.Text as Text
 import qualified Text.Parsec.Char as C
 import qualified Text.Parsec as P
@@ -32,7 +33,11 @@ tptp_file = do
 tptp_input_list :: (P.Stream s m Char) => P.ParsecT s u m [T.Input]
 tptp_input_list = P.choice [
   P.try $ do { C.spaces; P.eof; return [] },
-  do { C.spaces; f <- fof_annotated; l <- tptp_input_list; return (f:l) }] 
+  do {
+    C.spaces;
+    f <- fof_annotated;
+    l <- tptp_input_list; return (f:l);
+  }] 
 
 formula_role :: (P.Stream s m Char) => P.ParsecT s u m T.Input'Role
 formula_role = do { C.spaces; P.choice [
@@ -52,13 +57,24 @@ formula_role = do { C.spaces; P.choice [
   P.try $ do { C.string "fi_predicates"; return T.Input'FI_PREDICATES },
   P.try $ do { C.string "unknown"; return T.Input'UNKNOWN }]}
 
+language :: (P.Stream s m Char) => P.ParsecT s u m T.Input'Language
+language = do { l <- name; case l of {
+  "fof" -> return T.Input'FOF;
+  "cnf" -> return T.Input'CNF;
+  _ -> fail ("unexpected language: " ++ l);
+}}
+
 fof_annotated :: (P.Stream s m Char) => P.ParsecT s u m T.Input
 fof_annotated = do
-  string "fof"; char '('
+  l <- language; char '('
   n <- name; char ','
   r <- formula_role; char ','
   f <- fof_logic_formula; char ')'; char '.'
-  return $ defMessage & #name.~(Text.pack n) & #role.~r & #formula.~f
+  return $ defMessage
+    & #language.~l
+    & #name.~(Text.pack n)
+    & #role.~r
+    & #formula.~f
 
 fof_logic_formula :: (P.Stream s m Char) => P.ParsecT s u m T.Formula
 fof_logic_formula = do
@@ -112,6 +128,8 @@ fof_pred_formula = do
 
 fof_unit_formula :: (P.Stream s m Char) => P.ParsecT s u m T.Formula
 fof_unit_formula = P.choice [
+  P.try $ do { string "$true"; return $ defMessage & #op.~(defMessage & #type'.~T.Formula'Operator'TRUE) },
+  P.try $ do { string "$false"; return $ defMessage & #op.~(defMessage & #type'.~T.Formula'Operator'FALSE) },
   P.try $ fof_neg_formula,
   P.try $ fof_quant_formula, 
   P.try $ fof_pred_formula,

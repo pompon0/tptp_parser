@@ -1,5 +1,5 @@
 module ConvBin(main,
-  pullInteresting,pullSimple,pullAverage,pullProtoTar,
+  isInteresting,isSimple,isAverage,pullAll,pullAllCNF,
   readProtoTar,saveProtoTar) where
 
 import Lens.Micro((.~),(^.),(&))
@@ -27,6 +27,7 @@ import qualified Form
 
 --inputFile = "http://cl-informatik.uibk.ac.at/cek/grzegorz/f.tgz"
 inputFile = "https://storage.googleapis.com/tptp/tptp_sample.tgz"
+inputFileCNF = "https://storage.googleapis.com/tptp/tptp_sample_cnf.tgz"
 --inputFile = "http://localhost:8000/tptp_sample.tgz"
 outputFile = "/tmp/f.tgz"
 
@@ -37,9 +38,9 @@ extractEntry entry = do
     Tar.NormalFile x _ -> return (path, B8.unpack (B.toStrict x))
     _ -> fail (path ++ " - not a file")
 
-pullEntries :: IO [(String,String)]
-pullEntries = do
-  req <- S.parseRequest inputFile
+pullEntries :: String -> IO [(String,String)]
+pullEntries url = do
+  req <- S.parseRequest url
   resp <- S.httpBS req
   let entriesStream = Tar.read (GZip.decompress $ B.fromStrict $ S.getResponseBody resp)
   case Tar.foldlEntries (\a e -> e:a) [] entriesStream of
@@ -71,8 +72,11 @@ readProtoTar path = readEntries path >>= mapM (
     Left err -> fail $ "error while parsing " ++ k ++ ": " ++ err
     Right proto -> return (k,proto))
 
-pullProtoTar :: IO [(String,T.File)]
-pullProtoTar = do
+pullAll = pullAndParse inputFile
+pullAllCNF = pullAndParse inputFileCNF
+
+pullAndParse :: String -> IO [(String,T.File)]
+pullAndParse url = do
   let {
     eval (path,content) = do
       resOrErr <- Trace.evalIO (Parser.parse content);
@@ -80,13 +84,13 @@ pullProtoTar = do
         Left errStack -> fail (path ++ "\n" ++ show errStack)
         Right res -> return (path,res);
   }
-  pullEntries >>= mapM eval
+  pullEntries url >>= mapM eval
 
 saveProtoTar :: Message a => [(String,a)] -> IO ()
 saveProtoTar = saveEntries . fmap (fmap TextFormat.showMessage)
 
-interesting :: T.File -> IO Bool
-interesting tptpFile = do
+isInteresting :: (String,T.File) -> IO Bool
+isInteresting (_,tptpFile) = do
   form <- assert (Form.fromProto tptpFile)
   let eqPreds = filter (\p -> case p of { Form.PEq _ _ -> True; _ -> False }) (Form.preds form)
   return $ if length eqPreds == 0 then False else case form of {
@@ -95,13 +99,14 @@ interesting tptpFile = do
     _ -> True;
   }
 
-pullInteresting = pullProtoTar >>= filterM (interesting.snd)
+isSimple :: (String,T.File) -> IO Bool
+isSimple = return.(`elem` simpleCases).fst
 
-pullSimple = pullInteresting >>= filterM (return.(`elem` simpleCases).fst)
-pullAverage = pullInteresting >>= filterM (return.(`elem` averageCases).fst)
+isAverage :: (String,T.File) -> IO Bool
+isAverage = return.(`elem` averageCases).fst
 
 main = killable $ do
-  problems <- pullInteresting
+  problems <- pullAll
   printE "problems pulled"
   saveProtoTar problems
 

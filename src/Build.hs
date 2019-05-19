@@ -14,7 +14,7 @@ import qualified KBOTest
 import qualified BrandTest
 
 tests = testGroup "all" [
-  --ParserTest.tests,
+  ParserTest.tests,
   LibTest.tests,
   SkolemTest.tests,
   MGUTest.tests,

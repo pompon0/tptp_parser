@@ -1,6 +1,7 @@
 module TptpSampleData where
 
 problems = [
+  ("trivial",trivial),
   ("simple",simple),
   ("eqAxiom1",eqAxiom1),
   ("eqAxiom2",eqAxiom2),
@@ -10,6 +11,7 @@ problems = [
   ("pelletier20",pelletier20),
   ("pelletier24",pelletier24)]
 
+trivial = "fof(trivial, conjecture, ($true))."
 simple = "fof(simple, conjecture, (?[X]:(![Y]: (p(X) => p(Y)))))."
 
 eqAxiom1 = "fof(eqAxiom1, conjecture, ((a1=a2) & (b1=b2) & (c1=c2)) => (f(a1,b1,c1)=f(a2,b2,c2)))."

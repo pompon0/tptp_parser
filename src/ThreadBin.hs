@@ -5,12 +5,13 @@ import Options
 import System.Environment(getArgs)
 import Control.Exception(evaluate)
 import Control.Lens((^.),to,non,at)
+import Control.Monad(filterM)
 import qualified Data.Map as Map
-import Data.List(intercalate)
+import Data.List(intercalate,sort)
 import Lib
 
 import qualified DNF
-import ConvBin(pullInteresting,pullSimple,pullAverage,pullProtoTar)
+import ConvBin(isInteresting,isSimple,isAverage,pullAll,pullAllCNF)
 import ParserBin(toDNF)
 import qualified Tableaux
 import qualified LazyParam
@@ -27,11 +28,13 @@ enumOption name def = defineOption enumOptionType
       Just x -> Right x
 
 data Prover = LazyParam | BrandTableau | AxiomaticTableau deriving(Bounded,Enum,Show)
-data TestSet = Simple | Average | Interesting | All deriving(Bounded,Enum,Show)
+data TestSet = FOF | EproverCNF deriving(Bounded,Enum,Show)
+data TestFilter = All | Simple | Average | Interesting deriving(Bounded,Enum,Show)
 
 data Args = Args {
   prover :: Prover,
   testSet :: TestSet,
+  testFilter :: TestFilter,
   timeoutSec :: Int,
   testName :: String
 } deriving(Show)
@@ -39,7 +42,8 @@ data Args = Args {
 instance Options Args where
   defineOptions = pure Args
     <*> enumOption "prover" LazyParam
-    <*> enumOption "test_set" Simple
+    <*> enumOption "test_set" FOF
+    <*> enumOption "test_filter" All
     <*> simpleOption "timeout_sec" 5 ""
     <*> simpleOption "test_name" "" ""
 
@@ -59,12 +63,18 @@ proveAndCheck prover (name, problem) = (,) name $ do
 main = runCommand $ \(args :: Args) _ -> do
   --[tarPath] <- getArgs
   --forms <- readProtoTar tarPath >>= mapM (\(k,p) -> assert (toDNF p) >>= return . (,) k)
-  forms <- (case testSet args of {
-    Simple -> pullSimple;
-    Average -> pullAverage;
-    Interesting -> pullInteresting;
-    All -> pullProtoTar;
-  })
+  forms <- do
+    x <- case testSet args of {
+      FOF -> pullAll;
+      EproverCNF -> pullAllCNF;
+    }
+    let f = case testFilter args of {
+      All -> (\_ -> return True);
+      Simple -> isSimple;
+      Average -> isAverage;
+      Interesting -> isInteresting;
+    }
+    filterM f (sort x)
   let forms' = if testName args/="" then filter (\(k,_) -> k==testName args) forms else forms
   forms'' <- mapM (\(k,p) -> assert (toDNF p) >>= return . (,) k) forms'
   let timeout_us = fromIntegral $ (timeoutSec args)*1000000

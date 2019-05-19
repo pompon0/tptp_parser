@@ -4,7 +4,7 @@
 module Form where
 
 import Prelude hiding(fail)
-import Control.Monad(join)
+import Control.Monad(join,when)
 import Control.Monad.Trans.Class(lift)
 import qualified Control.Monad.Identity as Identity
 import qualified Control.Monad.Trans.Except as Except
@@ -15,6 +15,8 @@ import Lens.Labels.Unwrapped ()
 import qualified Data.Text as Text
 import qualified Data.List as List
 import Data.Ix(Ix)
+import qualified Data.Set as Set
+import Data.Set((\\))
 
 import Lib
 import qualified Proto.Tptp as T
@@ -51,7 +53,7 @@ instance Show Term where
 
 fromProto :: T.File -> Either String Form 
 fromProto f = let
-  (res,_) = StateM.runState (Except.runExceptT (_File'fromProto f)) (State Map.empty Map.empty [])
+  (res,_) = StateM.runState (Except.runExceptT (fromProto'File f)) (State Map.empty Map.empty [])
   in res
 
 ---------------------------------------
@@ -108,18 +110,28 @@ lookupTVar name = do
     Just i -> return (fromIntegral i)
     Nothing -> fail ("variable " ++ show name ++ " not bound")
 
-_File'fromProto :: T.File -> M Form
-_File'fromProto f = do
-  let m = splitBy (\i -> i^. #role) (f^. #input) 
-  let unknown = Map.filterWithKey (\r _ -> not (elem r [T.Input'AXIOM,T.Input'CONJECTURE])) m
-  if unknown /= Map.empty then fail ("unexpected roles: " ++ show unknown) else do
-    formulas <- (mapM.mapM) (\(i::T.Input)-> _Form'fromProto (i^. #formula)) m
-    let axioms = Map.findWithDefault [] T.Input'AXIOM formulas
-    let conjs = Map.findWithDefault [] T.Input'CONJECTURE formulas
-    return $ Or [Neg (And axioms),And conjs]
+fromProto'File :: T.File -> M Form
+fromProto'File f = mapM fromProto'Input (f^. #input) >>= return.Or
 
-_Form'fromProto :: T.Formula -> M Form
-_Form'fromProto f =
+fromProto'Input :: T.Input -> M Form
+fromProto'Input i = do
+  let { freeVars = unique $ freeVars'Formula (i^. #formula) };
+  case i^. #language of {
+    T.Input'CNF -> return ();
+    T.Input'FOF -> when (freeVars/=mempty) $ fail "unexpected free vars in FOF";
+    language@_ -> fail ("unexpected language: " ++ show language);
+  };
+  form <- push freeVars (fromProto'Form (i^. #formula)) >>= (\f -> return $ foldl (\x _-> Forall x) f freeVars);
+  case i^. #role of {
+    T.Input'AXIOM -> return $ Neg form;
+    T.Input'PLAIN -> return $ Neg form;
+    T.Input'NEGATED_CONJECTURE -> return $ Neg form;
+    T.Input'CONJECTURE -> return form; 
+    role@_ -> fail ("unexpected role: " ++ show role);
+  };
+
+fromProto'Form :: T.Formula -> M Form
+fromProto'Form f =
   case f^. #maybe'formula of 
     Nothing -> fail "field missing"
     Just (T.Formula'Pred' pred) -> _Pred'fromProto (pred) >>= return . Atom
@@ -129,12 +141,12 @@ _Form'fromProto f =
         T.Formula'Quant'EXISTS -> return Exists
         _ -> fail "Formula'Quant'UNKNOWN");
       let { vars = quant^. #var };
-      f <- push vars (_Form'fromProto (quant^. #sub));
+      f <- push vars (fromProto'Form (quant^. #sub));
       return $ foldl (\x _-> c x) f vars
     }
     Just (T.Formula'Op op) -> do { 
       let { args2pair args = case args of { [l,r] -> return (l,r); _ -> fail "args != [l,r]" }};
-      args <- mapM _Form'fromProto (op^. #args);
+      args <- mapM fromProto'Form (op^. #args);
       case (op^. #type') of
         T.Formula'Operator'NEG -> do {
           arg <- (case args of
@@ -158,7 +170,9 @@ _Form'fromProto f =
         }
         T.Formula'Operator'NOR -> return (Neg (Or args))
         T.Formula'Operator'NAND -> return (Neg (And args))
-        _ -> fail "Formula'Operator'UNKNOWN'";
+        T.Formula'Operator'TRUE -> return (And [])
+        T.Formula'Operator'FALSE -> return (Or [])
+        op@_ -> fail ("unexpected operator:" ++ show op)
     }
 
 _Pred'fromProto :: T.Formula'Pred -> M Pred
@@ -183,3 +197,19 @@ _Term'fromProto term = case (term^. #type') of
     return (TFun name args);
   }
   _ -> fail "term.type unknown"
+
+
+freeVars'Term :: T.Term -> [Text.Text]
+freeVars'Term t = case t^. #type' of {
+  T.Term'VAR -> [t^. #name];
+  T.Term'EXP -> t^. #args >>= freeVars'Term;
+}
+
+freeVars'Formula :: T.Formula -> [Text.Text]
+freeVars'Formula f = case f^. #maybe'formula of {
+  Nothing -> [];
+  Just (T.Formula'Pred' pred) -> pred^. #args >>= freeVars'Term;
+  Just (T.Formula'Quant' quant) -> Set.toAscList $ Set.fromList (freeVars'Formula $ quant^. #sub) \\ Set.fromList (quant^. #var);
+  Just (T.Formula'Op op) -> op^. #args >>= freeVars'Formula;
+}
+
