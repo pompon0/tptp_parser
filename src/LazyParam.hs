@@ -16,7 +16,7 @@ import Proof(andClause'term)
 import qualified LazyParamTree as Tree
 import qualified Graph
 
-import Control.Monad(mplus,mzero,MonadPlus,join)
+import Control.Monad(mplus,mzero,MonadPlus,join,when)
 import Control.Monad.State.Class(MonadState,get,put)
 import qualified Control.Monad.Trans.Cont as ContM
 import qualified Control.Monad.Trans.State.Lazy as StateM
@@ -170,8 +170,9 @@ pushAndCont cont a = branch %= (a:) >> withCtx (show a) cont >>= return.((,) a)
 
 start :: M Tree.Node
 start = do
-  cla <- anyClause
-  allM (map (pushAndCont weak) cla) >>= return . Tree.expand
+  atoms <- anyClause
+  when (any (^.atom'sign) atoms) throw
+  allM (map (pushAndCont weak) atoms) >>= return . Tree.expand
 
 expand :: M Tree.Node
 expand = do
@@ -218,11 +219,11 @@ assertOpposite a b = if a^.atom'pred.pred'name /= b^.atom'pred.pred'name || a^.a
 
 -- S || \Gamma,!P[r],P[s]
 -- S || \Gamma,P[r],!P[s]
--- not sure if non-paramodulation strong step for equality predicate is needed
--- TODO: verify that against the proof
+-- NOTE: non-paramodulation strong step for equality predicate is NOT needed
 -- TODO: verify if swapping r* with s* is needed
 strongPred :: Atom -> Atom -> M Tree.Node
-strongPred a1 a2 =  do
+strongPred a1 a2 = do
+  assertPCustom a1
   assertOpposite a1 a2
   let r = a1^.atom'args
   let s = a2^.atom'args
@@ -254,6 +255,9 @@ atom'arg = atom'args.traverse
 assertEq :: Bool -> Atom -> M (Term,Term)
 assertEq s (Atom x p) = if s/=x then throw else
   case unwrap p of { PEq l r -> return (l,r); _ -> throw }
+
+assertPCustom :: Atom -> M ()
+assertPCustom (Atom _ p) = case unwrap p of { PEq l r -> throw; _ -> return () }
 
 -- S || \Gamma, L[p], z~r
 -- S || \Gamma, L[p], f(s)~r
