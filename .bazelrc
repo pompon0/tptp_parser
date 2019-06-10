@@ -1,0 +1,2 @@
+build --action_env=HOME
+build --action_env=PATH

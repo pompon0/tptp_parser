@@ -3,3 +3,9 @@ proto_library(
     srcs = ["tptp.proto"],
     visibility = ["//visibility:public"],
 )
+
+proto_library(
+    name = "proof_proto",
+    srcs = ["proof.proto"],
+    visibility = ["//visibility:public"],
+)

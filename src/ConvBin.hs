@@ -28,6 +28,8 @@ import qualified Form
 --inputFile = "http://cl-informatik.uibk.ac.at/cek/grzegorz/f.tgz"
 inputFile = "https://storage.googleapis.com/tptp/tptp_sample.tgz"
 inputFileCNF = "https://storage.googleapis.com/tptp/tptp_sample_cnf.tgz"
+inputFileTestCNF = "https://storage.googleapis.com/tptp/tptp_test_cnf.tgz"
+
 --inputFile = "http://localhost:8000/tptp_sample.tgz"
 outputFile = "/tmp/f.tgz"
 
@@ -74,6 +76,7 @@ readProtoTar path = readEntries path >>= mapM (
 
 pullAll = pullAndParse inputFile
 pullAllCNF = pullAndParse inputFileCNF
+pullTestCNF = pullAndParse inputFileTestCNF
 
 pullAndParse :: String -> IO [(String,T.File)]
 pullAndParse url = do
@@ -106,7 +109,7 @@ isAverage :: (String,T.File) -> IO Bool
 isAverage = return.(`elem` averageCases).fst
 
 main = killable $ do
-  problems <- pullAll
+  problems <- pullAllCNF
   printE "problems pulled"
   saveProtoTar problems
 
