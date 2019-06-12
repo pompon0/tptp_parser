@@ -11,9 +11,9 @@ import Control.Monad.Trans.Class(lift)
 import Control.Lens
 import qualified Control.Monad.Identity as Identity
 import qualified Control.Monad.Trans.Except as ExceptM
+import qualified Control.Monad.Trans.Reader as ReaderM
 import qualified Control.Monad.Trans.State.Lazy as StateM
 import qualified Data.Map as Map
-import Control.Lens((.~),(&),(^.))
 import Lens.Labels.Unwrapped ()
 import qualified Data.Text as Text
 import qualified Data.List as List
@@ -21,6 +21,7 @@ import Data.Ix(Ix)
 import qualified Data.Set as Set
 import Data.Set((\\))
 import Data.Maybe(fromMaybe,fromJust)
+import Data.ProtoLens(defMessage)
 
 import Lib
 import qualified Proto.Tptp as T
@@ -65,6 +66,18 @@ makeLenses ''NameIndex
 
 emptyNI = NameIndex Map.empty Map.empty
 
+data RevNameIndex = RevNameIndex {
+  _revPredNames :: Map.Map PredName Text.Text,
+  _revFunNames :: Map.Map FunName Text.Text
+}
+makeLenses ''RevNameIndex
+
+revNI :: NameIndex -> RevNameIndex
+revNI ni = RevNameIndex
+  (Map.fromList $ map (\((t,a),n) -> (n,t)) (Map.toList $ ni^.predNames))
+  (Map.fromList $ map (\((t,a),n) -> (n,t)) (Map.toList $ ni^.funNames))
+
+
 data State = State {
   _names :: NameIndex,
   _varStack :: [Text.Text]
@@ -73,6 +86,7 @@ data State = State {
 makeLenses ''State
 
 type M = StateM.StateT State (ExceptM.Except String)
+type RM = ReaderM.Reader RevNameIndex 
 
 push :: [Text.Text] -> M a -> M a
 push names ma = do
@@ -203,6 +217,23 @@ fromProto'Term term = case (term^. #type') of
   }
   _ -> fail "term.type unknown"
 
+toProto'Pred :: Pred -> RM T.Formula'Pred
+toProto'Pred pred = case unwrap pred of
+  PEq l r -> do
+    args' <- mapM toProto'Term [l,r]
+    return $ defMessage & #type' .~ T.Formula'Pred'EQ & #args .~ args'
+  PCustom pn args -> do
+    name <- view $ revPredNames.at pn
+    args' <- mapM toProto'Term args
+    return $ defMessage & #type' .~ T.Formula'Pred'CUSTOM & #args .~ args'
+
+toProto'Term :: Term -> RM T.Term
+toProto'Term term = case unwrap term of
+  TVar vn -> return $ defMessage & #type' .~ T.Term'VAR & #name .~ Text.pack (show vn)
+  TFun fn args -> do
+    name <- view $ revFunNames.at fn
+    args' <- mapM toProto'Term args
+    return $ defMessage & #type' .~ T.Term'EXP & #name .~ fromJust name & #args .~ args'
 
 freeVars'Term :: T.Term -> [Text.Text]
 freeVars'Term t = case t^. #type' of {

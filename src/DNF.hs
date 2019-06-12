@@ -24,17 +24,18 @@ import Lib
 import qualified MGU
 import qualified Proto.Tptp as T
 
-import Form(freeVars'Formula,fromProto'Pred,NameIndex,M,runM)
+import Form(freeVars'Formula,fromProto'Pred,toProto'Pred,NameIndex,M,RM,runM)
 import qualified Data.Text as Text
 import qualified Data.List.Ordered as Ordered
 import Control.Monad(foldM,when)
 import qualified Control.Monad.Trans.Except as ExceptM
 import qualified Control.Monad.Trans.State.Lazy as StateM
-import Control.Lens(Traversal',Lens',Iso',Fold,filtered,makeLenses,(&),(%~),dimap,from,(^..),(^.),toListOf)
+import Control.Lens
 import Data.List(intercalate)
 import Data.List.Utils (replace)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.ProtoLens(defMessage)
 
 data Atom = Atom { _atom'sign :: Bool, _atom'pred :: Pred } deriving(Eq,Ord)
 makeLenses ''Atom
@@ -171,4 +172,28 @@ fromProto'Atom f =
     }
     Just (T.Formula'Pred' pred) -> fromProto'Pred pred >>= return . Atom True
     Just (formType@_) -> fail ("unexpected formula type: " ++ show formType)
+
+toProto'Form :: OrForm -> RM T.File
+toProto'Form (OrForm clauses) = do
+  inputs <- mapM (toProto'Input.notAndClause) clauses
+  return $ defMessage & #input .~ inputs
+
+toProto'Input :: OrClause -> RM T.Input
+toProto'Input (OrClause atoms) = do
+  atoms' <- mapM toProto'Atom atoms 
+  return $ defMessage
+    & #language .~ T.Input'CNF
+    & #role .~ T.Input'PLAIN
+    & #formula .~ (defMessage
+      & #maybe'formula .~ (Just $ T.Formula'Op $ defMessage
+        & #type' .~ T.Formula'Operator'OR
+        & #args .~ atoms'))
+
+toProto'Atom :: Atom -> RM T.Formula
+toProto'Atom (Atom sign pred) = do
+  pred' <- toProto'Pred pred
+  let fpred = defMessage & #maybe'formula .~ Just (T.Formula'Pred' pred')
+  let op = defMessage & #type' .~ T.Formula'Operator'NEG & #args .~ [fpred]
+  let fop = defMessage & #maybe'formula .~ Just (T.Formula'Op op)
+  case sign of { True -> return fpred; False -> return fop }
 
