@@ -21,9 +21,9 @@ import qualified Data.Set.Monad as SetM
 main = do
   [problemPath,proofPath] <- getArgs
   problemProto :: PT.File <- readProtoFile problemPath
-  proofProto :: PP.Proof <- readProtoFile proofPath
-  problem <- assert $ ParserBin.toDNF problemProto
-  let proof :: Proof.Proof = Proof.fromProto proofProto
+  proofProto :: PT.File <- readProtoFile proofPath
+  (problem,nameIndex) <- assert $ DNF.fromProto problemProto Form.emptyNI
+  (proof,_) <- assert $ DNF.fromProto proofProto nameIndex
   putStrLn ("problem = " ++ show problem)
   putStrLn ("proof = " ++ show proof)
   Proof.check problem proof

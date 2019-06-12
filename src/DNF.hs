@@ -15,6 +15,7 @@ module DNF(
   OrClause(..), orClause'atoms,
   notOrClause, notAndClause,
   toNotAndForm, toOrForm,
+  fromProto, toProto,
 ) where
 
 import Prelude hiding(pred)
@@ -24,12 +25,11 @@ import Lib
 import qualified MGU
 import qualified Proto.Tptp as T
 
-import Form(freeVars'Formula,fromProto'Pred,toProto'Pred,NameIndex,M,RM,runM)
+import Form(freeVars'Formula,fromProto'Pred,toProto'Pred,NameIndex,M,RM,runM,revNI)
 import qualified Data.Text as Text
 import qualified Data.List.Ordered as Ordered
 import Control.Monad(foldM,when)
-import qualified Control.Monad.Trans.Except as ExceptM
-import qualified Control.Monad.Trans.State.Lazy as StateM
+import qualified Control.Monad.Trans.Reader as ReaderM
 import Control.Lens
 import Data.List(intercalate)
 import Data.List.Utils (replace)
@@ -122,8 +122,11 @@ isInstance a b = andClause'runMGU (a,b) emptyValuation /= Nothing
 
 -----------------------------------------------------
 
-fromProto :: T.File -> Either String (OrForm,NameIndex)
-fromProto f = runM (fromProto'File f)
+fromProto :: T.File -> NameIndex -> Either String (OrForm,NameIndex)
+fromProto f ni = runM (fromProto'File f) ni
+
+toProto :: OrForm -> NameIndex -> T.File
+toProto f ni = ReaderM.runReader (toProto'File f) (revNI ni)
 
 -----------------------------------------------------
 
@@ -173,8 +176,8 @@ fromProto'Atom f =
     Just (T.Formula'Pred' pred) -> fromProto'Pred pred >>= return . Atom True
     Just (formType@_) -> fail ("unexpected formula type: " ++ show formType)
 
-toProto'Form :: OrForm -> RM T.File
-toProto'Form (OrForm clauses) = do
+toProto'File :: OrForm -> RM T.File
+toProto'File (OrForm clauses) = do
   inputs <- mapM (toProto'Input.notAndClause) clauses
   return $ defMessage & #input .~ inputs
 

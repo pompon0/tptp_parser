@@ -121,13 +121,13 @@ lookupTVar name = do
     Just i -> return (fromIntegral i)
     Nothing -> fail ("variable " ++ show name ++ " not bound")
 
-runM :: M a -> Either String (a,NameIndex)
-runM ma = case (ExceptM.runExcept $ StateM.runStateT ma (State emptyNI [])) of
+runM :: M a -> NameIndex -> Either String (a,NameIndex)
+runM ma ni = case (ExceptM.runExcept $ StateM.runStateT ma (State ni [])) of
   Left e -> Left e
   Right (a,s) -> Right (a,s^.names)
 
 fromProto :: T.File -> Either String Form
-fromProto f = case runM (fromProto'File f) of { Left e -> Left e; Right (f,ni) -> Right f }
+fromProto f = case runM (fromProto'File f) emptyNI of { Left e -> Left e; Right (f,ni) -> Right f }
 
 fromProto'File :: T.File -> M Form
 fromProto'File f = mapM fromProto'Input (f^. #input) >>= return.Or
