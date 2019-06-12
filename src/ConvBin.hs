@@ -19,6 +19,7 @@ import qualified Data.Map as Map
 import Control.Monad(filterM)
 import qualified Data.Set as Set
 
+import Pred
 import Lib
 import qualified Proto.Tptp as T
 import qualified Parser
@@ -95,7 +96,7 @@ saveProtoTar = saveEntries . fmap (fmap TextFormat.showMessage)
 isInteresting :: (String,T.File) -> IO Bool
 isInteresting (_,tptpFile) = do
   form <- assert (Form.fromProto tptpFile)
-  let eqPreds = filter (\p -> case p of { Form.PEq _ _ -> True; _ -> False }) (Form.preds form)
+  let eqPreds = filter (\p -> case unwrap p of { PEq _ _ -> True; _ -> False }) (Form.preds form)
   return $ if length eqPreds == 0 then False else case form of {
     Form.Or [Form.Neg x,y] | x==y -> False;
     Form.Or [x,Form.Neg y] | x==y -> False;

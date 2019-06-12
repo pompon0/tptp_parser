@@ -163,19 +163,21 @@ skolF f = case f of
   F.And x -> mapM skolF x >>= return . And
   F.PosAtom p -> skolP p >>= return . PosAtom
   F.NegAtom p -> skolP p >>= return . NegAtom
-skolP p = case p of
-  F.PEq l r -> do
+
+skolP :: Pred -> M Pred
+skolP p = case unwrap p of
+  PEq l r -> do
     sl <- skolT l
     sr <- skolT r
     return (wrap $ PEq sl sr)
-  F.PCustom name args -> mapM skolT args >>= return . wrap . PCustom name
-skolT t = case t of
-  F.TVar ref -> do
-    mt <- use (varStack.ix ref)
+  PCustom name args -> mapM skolT args >>= return . wrap . PCustom name
+skolT t = case unwrap t of
+  TVar vn -> do
+    mt <- use (varStack.ix vn)
     case mt of
       Nothing -> fail "oob"
       Just t -> return t
-  F.TFun name args -> do
+  TFun name args -> do
     n <- lookupFunName name
     a <- mapM skolT args
     return (wrap $ TFun n a)

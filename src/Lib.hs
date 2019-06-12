@@ -32,7 +32,7 @@ import qualified System.Clock as Clock
 
 newtype FunName = FunName Int deriving (Eq,Num,Ord,Integral,Real,Enum,Hashable)
 newtype PredName = PredName Int deriving(Eq,Num,Ord,Integral,Real,Enum,Hashable)
-newtype VarName = VarName Int deriving (Eq,Num,Ord,Integral,Real,Enum,Hashable)
+newtype VarName = VarName Int deriving (Eq,Num,Ord,Integral,Real,Enum,Hashable,Ix)
 instance Show FunName where { show (FunName n) = "f" ++ show n }
 instance Show PredName where { show (PredName n) = "p" ++ show n }
 instance Show VarName where { show (VarName n) = "v" ++ show n }

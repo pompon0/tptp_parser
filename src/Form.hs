@@ -1,14 +1,17 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Form where
 
+import Pred
 import Prelude hiding(fail)
-import Control.Monad(join,when)
+import Control.Monad(join,when,fail)
 import Control.Monad.Trans.Class(lift)
+import Control.Lens
 import qualified Control.Monad.Identity as Identity
-import qualified Control.Monad.Trans.Except as Except
-import qualified Control.Monad.State.Lazy as StateM
+import qualified Control.Monad.Trans.Except as ExceptM
+import qualified Control.Monad.Trans.State.Lazy as StateM
 import qualified Data.Map as Map
 import Control.Lens((.~),(&),(^.))
 import Lens.Labels.Unwrapped ()
@@ -17,12 +20,10 @@ import qualified Data.List as List
 import Data.Ix(Ix)
 import qualified Data.Set as Set
 import Data.Set((\\))
+import Data.Maybe(fromMaybe,fromJust)
 
 import Lib
 import qualified Proto.Tptp as T
-
-newtype VarRef = VarRef Int deriving(Eq,Num,Ord,Ix)
-instance Show VarRef where { show (VarRef x) = show x }
 
 data Form = Forall Form
   | Exists Form
@@ -33,9 +34,6 @@ data Form = Forall Form
   | Atom Pred
   deriving(Eq)
 
-data Pred = PEq Term Term | PCustom PredName [Term] deriving(Eq)
-data Term = TVar VarRef | TFun FunName [Term] deriving(Eq)
-
 instance Show Form where
   show (Forall f) = "A " ++ show f
   show (Exists f) = "E " ++ show f
@@ -44,17 +42,6 @@ instance Show Form where
   show (Xor l r) = "xor(" ++ sepList [l,r] ++ ")"
   show (Neg f) = "-" ++ show f
   show (Atom p) = show p
-instance Show Pred where
-  show (PEq l r) = "eq(" ++ sepList [l,r] ++ ")"
-  show (PCustom n x) = show n ++ "(" ++ sepList x ++ ")"
-instance Show Term where
-  show (TVar n) = "$" ++ show n
-  show (TFun n x) = show n ++ "(" ++ sepList x ++ ")"
-
-fromProto :: T.File -> Either String Form 
-fromProto f = let
-  (res,_) = StateM.runState (Except.runExceptT (fromProto'File f)) (State Map.empty Map.empty [])
-  in res
 
 ---------------------------------------
 
@@ -70,45 +57,63 @@ preds f = case f of
 
 ---------------------------------------
 
+data NameIndex = NameIndex {
+  _predNames :: Map.Map (Text.Text,Int) PredName,
+  _funNames :: Map.Map (Text.Text,Int) FunName
+}
+makeLenses ''NameIndex
+
+emptyNI = NameIndex Map.empty Map.empty
+
 data State = State {
-  predNames :: Map.Map (Text.Text,Int) PredName,
-  funNames :: Map.Map (Text.Text,Int) FunName,
-  varStack :: [Text.Text]
+  _names :: NameIndex,
+  _varStack :: [Text.Text]
 }
 
-type M = Except.ExceptT String (StateM.State State)
+makeLenses ''State
 
-fail :: String -> M a
-fail msg = Except.throwE msg
+type M = StateM.StateT State (ExceptM.Except String)
 
 push :: [Text.Text] -> M a -> M a
 push names ma = do
-  stack <- StateM.get >>= return . varStack
-  StateM.modify (\s -> s {varStack = (names ++ stack)})
+  old <- varStack <<%= (names++)
   a <- ma
-  StateM.modify (\s -> s {varStack = stack }) 
+  varStack .= old
   return a
+
 
 lookupPredName :: (Text.Text,Int) -> M PredName
 lookupPredName name = do
-  s <- StateM.get
-  let (i,pn) = getUnique name (predNames s)
-  StateM.put $ s { predNames = pn }
-  return i
+  mx <- use $ names.predNames.at name
+  case mx of { Just x -> return x; _ -> do
+    x <- use $ names.predNames.to (fromIntegral . Map.size);
+    names.predNames.at name ?= x;
+    return x;
+  }
 
 lookupFunName :: (Text.Text,Int) -> M FunName
 lookupFunName name = do
-  s <- StateM.get
-  let (i,fn) = getUnique name (funNames s)
-  StateM.put $ s { funNames = fn }
-  return i
+  mx <- use $ names.funNames.at name
+  case mx of { Just x -> return x; _ -> do
+    x <- use $ names.predNames.to (fromIntegral . Map.size);
+    names.funNames.at name ?= x;
+    return x;
+  }
 
-lookupTVar :: Text.Text -> M VarRef
+lookupTVar :: Text.Text -> M VarName
 lookupTVar name = do
-  s <- StateM.get
-  case (List.elemIndex name (varStack s)) of
+  mi <- use $ varStack.to (List.elemIndex name)
+  case mi of
     Just i -> return (fromIntegral i)
     Nothing -> fail ("variable " ++ show name ++ " not bound")
+
+runM :: M a -> Either String (a,NameIndex)
+runM ma = case (ExceptM.runExcept $ StateM.runStateT ma (State emptyNI [])) of
+  Left e -> Left e
+  Right (a,s) -> Right (a,s^.names)
+
+fromProto :: T.File -> Either String Form
+fromProto f = case runM (fromProto'File f) of { Left e -> Left e; Right (f,ni) -> Right f }
 
 fromProto'File :: T.File -> M Form
 fromProto'File f = mapM fromProto'Input (f^. #input) >>= return.Or
@@ -134,7 +139,7 @@ fromProto'Form :: T.Formula -> M Form
 fromProto'Form f =
   case f^. #maybe'formula of 
     Nothing -> fail "field missing"
-    Just (T.Formula'Pred' pred) -> _Pred'fromProto (pred) >>= return . Atom
+    Just (T.Formula'Pred' pred) -> fromProto'Pred (pred) >>= return . Atom
     Just (T.Formula'Quant' quant) -> do {
       c <- (case (quant^. #type') of
         T.Formula'Quant'FORALL -> return Forall
@@ -175,26 +180,26 @@ fromProto'Form f =
         op@_ -> fail ("unexpected operator:" ++ show op)
     }
 
-_Pred'fromProto :: T.Formula'Pred -> M Pred
-_Pred'fromProto pred = do
-  args <- mapM _Term'fromProto (pred^. #args)
+fromProto'Pred :: T.Formula'Pred -> M Pred
+fromProto'Pred pred = do
+  args <- mapM fromProto'Term (pred^. #args)
   case (pred^. #type') of
     T.Formula'Pred'CUSTOM -> do {
       name <- lookupPredName (pred^. #name, length args);
-      return (PCustom name args);
+      return (wrap $ PCustom name args);
     }
     T.Formula'Pred'EQ -> case args of
-      [l,r] -> return (PEq l r)
+      [l,r] -> return (wrap $ PEq l r)
       _ -> fail "args != [l,r]"
     _ -> fail "pred.type unknown"
 
-_Term'fromProto :: T.Term -> M Term
-_Term'fromProto term = case (term^. #type') of
-  T.Term'VAR -> lookupTVar (term^. #name) >>= return . TVar
+fromProto'Term :: T.Term -> M Term
+fromProto'Term term = case (term^. #type') of
+  T.Term'VAR -> lookupTVar (term^. #name) >>= return.wrap.TVar
   T.Term'EXP -> do {
-    args <- mapM _Term'fromProto (term^. #args);
+    args <- mapM fromProto'Term (term^. #args);
     name <- lookupFunName (term^. #name, length args);
-    return (TFun name args);
+    return (wrap $ TFun name args);
   }
   _ -> fail "term.type unknown"
 

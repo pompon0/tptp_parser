@@ -1,7 +1,7 @@
-module NNF(nnf,Form(..),F.Pred(..),F.Term(..)) where
+module NNF(nnf,Form(..),Pred(..),Term(..)) where
 
 import qualified Form as F
-import Form(Pred(..))
+import Pred
 import Lib
 
 data Form = Forall Form

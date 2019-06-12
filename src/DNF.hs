@@ -5,6 +5,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE OverloadedLabels #-}
 module DNF(
   dnf, simplify, isSubForm,
   Atom(..), atom'sign, atom'pred, atom'name, atom'args, atom'term, opposite,
@@ -21,11 +22,18 @@ import Pred
 import qualified Skolem
 import Lib
 import qualified MGU
+import qualified Proto.Tptp as T
+
+import Form(freeVars'Formula,fromProto'Pred,NameIndex,M,runM)
+import qualified Data.Text as Text
 import qualified Data.List.Ordered as Ordered
-import Control.Monad(foldM)
+import Control.Monad(foldM,when)
+import qualified Control.Monad.Trans.Except as ExceptM
+import qualified Control.Monad.Trans.State.Lazy as StateM
 import Control.Lens(Traversal',Lens',Iso',Fold,filtered,makeLenses,(&),(%~),dimap,from,(^..),(^.),toListOf)
 import Data.List(intercalate)
 import Data.List.Utils (replace)
+import qualified Data.Map as Map
 import qualified Data.Set as Set
 
 data Atom = Atom { _atom'sign :: Bool, _atom'pred :: Pred } deriving(Eq,Ord)
@@ -110,4 +118,57 @@ andClause'runMGU (c1,c2) val = do
 
 isInstance :: AndClause -> AndClause -> Bool
 isInstance a b = andClause'runMGU (a,b) emptyValuation /= Nothing
+
+-----------------------------------------------------
+
+fromProto :: T.File -> Either String (OrForm,NameIndex)
+fromProto f = runM (fromProto'File f)
+
+-----------------------------------------------------
+
+fromProto'File :: T.File -> M OrForm
+fromProto'File f = mapM fromProto'Input (f^. #input) >>= return . OrForm . map notOrClause
+
+fromProto'Input :: T.Input -> M OrClause
+fromProto'Input i = do
+  let { freeVars = unique $ freeVars'Formula (i^. #formula) }
+  when (i^. #language /= T.Input'CNF) (fail $ "unexpected language: " ++ show (i^. #language));
+  case i^. #role of {
+    T.Input'AXIOM -> return ();
+    T.Input'PLAIN -> return ();
+    T.Input'NEGATED_CONJECTURE -> return ();
+    role@_ -> fail ("unexpected role: " ++ show role);
+  }
+  fromProto'Form (i^. #formula)
+
+fromProto'Form :: T.Formula -> M OrClause
+fromProto'Form f =
+  case f^. #maybe'formula of
+    Nothing -> fail "field missing"
+    Just (T.Formula'Pred' pred) -> do {
+      a <- fromProto'Atom f;
+      return (OrClause [a]);
+    }
+    Just (T.Formula'Op op) -> do {
+      case (op^. #type') of {
+        T.Formula'Operator'OR -> mapM fromProto'Atom (op^. #args) >>= return.OrClause;
+        T.Formula'Operator'FALSE -> return (OrClause []);
+        _ -> do { a <- fromProto'Atom f; return (OrClause [a]) };
+      }
+    }
+    Just (opType@_) -> fail ("unexpected operator type: " ++ show opType)
+
+fromProto'Atom :: T.Formula -> M Atom
+fromProto'Atom f =
+  case f^. #maybe'formula of
+    Nothing -> fail "field missing"
+    Just (T.Formula'Op op) -> do {
+      when (op^. #type' /= T.Formula'Operator'NEG) (fail $ "unexpected operator type: " ++ show (op^. #type'));
+      when (length (op^. #args) /= 1) (fail "expected 1 arg");
+      let { [f'] = op^. #args };
+      a <- fromProto'Atom f';
+      return (a & atom'sign %~ not);
+    }
+    Just (T.Formula'Pred' pred) -> fromProto'Pred pred >>= return . Atom True
+    Just (formType@_) -> fail ("unexpected formula type: " ++ show formType)
 
