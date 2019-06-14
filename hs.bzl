@@ -2,8 +2,6 @@
 def _hs_stack_binaries(ctx):
   proto_files = [f for dep in ctx.attr.protos for f in dep[ProtoInfo].direct_sources]
   for f in ctx.outputs.bins:
-    if f.dirname != f.root.path:
-      fail(msg="f.dirname != f.root.path",attr="bins")
   out_dir = ctx.outputs.bins[0].dirname
   
   ctx.actions.run(
