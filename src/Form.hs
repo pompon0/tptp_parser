@@ -22,6 +22,7 @@ import qualified Data.Set as Set
 import Data.Set((\\))
 import Data.Maybe(fromMaybe,fromJust)
 import Data.ProtoLens(defMessage)
+import Text.Printf
 
 import Lib
 import qualified Proto.Tptp as T
@@ -61,7 +62,7 @@ preds f = case f of
 data NameIndex = NameIndex {
   _predNames :: Map.Map (Text.Text,Int) PredName,
   _funNames :: Map.Map (Text.Text,Int) FunName
-}
+} deriving(Show)
 makeLenses ''NameIndex
 
 emptyNI = NameIndex Map.empty Map.empty
@@ -69,7 +70,7 @@ emptyNI = NameIndex Map.empty Map.empty
 data RevNameIndex = RevNameIndex {
   _revPredNames :: Map.Map PredName Text.Text,
   _revFunNames :: Map.Map FunName Text.Text
-}
+} deriving(Show)
 makeLenses ''RevNameIndex
 
 revNI :: NameIndex -> RevNameIndex
@@ -86,7 +87,7 @@ data State = State {
 makeLenses ''State
 
 type M = StateM.StateT State (ExceptM.Except String)
-type RM = ReaderM.Reader RevNameIndex 
+type RM = ReaderM.ReaderT RevNameIndex (ExceptM.Except String)
 
 push :: [Text.Text] -> M a -> M a
 push names ma = do
@@ -109,7 +110,7 @@ lookupFunName :: (Text.Text,Int) -> M FunName
 lookupFunName name = do
   mx <- use $ names.funNames.at name
   case mx of { Just x -> return x; _ -> do
-    x <- use $ names.predNames.to (fromIntegral . Map.size);
+    x <- use $ names.funNames.to (fromIntegral . Map.size);
     names.funNames.at name ?= x;
     return x;
   }
@@ -125,6 +126,9 @@ runM :: M a -> NameIndex -> Either String (a,NameIndex)
 runM ma ni = case (ExceptM.runExcept $ StateM.runStateT ma (State ni [])) of
   Left e -> Left e
   Right (a,s) -> Right (a,s^.names)
+
+runRM :: RM a -> NameIndex -> Either String a
+runRM ma ni = ExceptM.runExcept (ReaderM.runReaderT ma (revNI ni))
 
 fromProto :: T.File -> Either String Form
 fromProto f = case runM (fromProto'File f) emptyNI of { Left e -> Left e; Right (f,ni) -> Right f }
@@ -223,17 +227,17 @@ toProto'Pred pred = case unwrap pred of
     args' <- mapM toProto'Term [l,r]
     return $ defMessage & #type' .~ T.Formula'Pred'EQ & #args .~ args'
   PCustom pn args -> do
-    name <- view $ revPredNames.at pn
+    name <- view (revPredNames.at pn) >>= orFail (printf "revPredNames %s = Nothing" (show pn))
     args' <- mapM toProto'Term args
-    return $ defMessage & #type' .~ T.Formula'Pred'CUSTOM & #args .~ args'
+    return $ defMessage & #type' .~ T.Formula'Pred'CUSTOM & #name .~ name & #args .~ args'
 
 toProto'Term :: Term -> RM T.Term
 toProto'Term term = case unwrap term of
   TVar vn -> return $ defMessage & #type' .~ T.Term'VAR & #name .~ Text.pack (show vn)
   TFun fn args -> do
-    name <- view $ revFunNames.at fn
+    name <- view (revFunNames.at fn) >>= return . fromMaybe (Text.pack $ show fn) 
     args' <- mapM toProto'Term args
-    return $ defMessage & #type' .~ T.Term'EXP & #name .~ fromJust name & #args .~ args'
+    return $ defMessage & #type' .~ T.Term'EXP & #name .~ name & #args .~ args'
 
 freeVars'Term :: T.Term -> [Text.Text]
 freeVars'Term t = case t^. #type' of {

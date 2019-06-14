@@ -1,4 +1,4 @@
-module ParserBin(main,toDNF) where
+module ParserBin(main,toDNF,formToDNF) where
 
 import qualified Data.ProtoLens.TextFormat as TextFormat
 import qualified Data.Text.Lazy as Text
@@ -16,10 +16,13 @@ import qualified LazyParam
 import qualified Tableaux
 import qualified Proof
 
+formToDNF :: Form.Form -> DNF.OrForm
+formToDNF = DNF.simplify . DNF.dnf . Skolem.skol . NNF.nnf
+
 --TODO: move the quantifiers down, convert to CNF (treating quantified formulas as atoms),
 --  which will give you a decomposition into subproblems
 toDNF :: T.File -> Either String DNF.OrForm
-toDNF tptpFile = fmap (DNF.simplify . DNF.dnf . Skolem.skol . NNF.nnf) (Form.fromProto tptpFile) 
+toDNF tptpFile = fmap formToDNF (Form.fromProto tptpFile) 
 
 main = do
   textProto <- getContents

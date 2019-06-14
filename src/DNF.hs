@@ -25,7 +25,7 @@ import Lib
 import qualified MGU
 import qualified Proto.Tptp as T
 
-import Form(freeVars'Formula,fromProto'Pred,toProto'Pred,NameIndex,M,RM,runM,revNI)
+import Form(freeVars'Formula,fromProto'Pred,toProto'Pred,NameIndex,M,RM,runM,runRM)
 import qualified Data.Text as Text
 import qualified Data.List.Ordered as Ordered
 import Control.Monad(foldM,when)
@@ -125,8 +125,8 @@ isInstance a b = andClause'runMGU (a,b) emptyValuation /= Nothing
 fromProto :: T.File -> NameIndex -> Either String (OrForm,NameIndex)
 fromProto f ni = runM (fromProto'File f) ni
 
-toProto :: OrForm -> NameIndex -> T.File
-toProto f ni = ReaderM.runReader (toProto'File f) (revNI ni)
+toProto :: OrForm -> NameIndex -> Either String T.File
+toProto f ni = runRM (toProto'File f) ni
 
 -----------------------------------------------------
 

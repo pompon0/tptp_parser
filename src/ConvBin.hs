@@ -110,7 +110,7 @@ isAverage :: (String,T.File) -> IO Bool
 isAverage = return.(`elem` averageCases).fst
 
 main = killable $ do
-  problems <- pullAllCNF
+  problems <- pullAll
   printE "problems pulled"
   saveProtoTar problems
 

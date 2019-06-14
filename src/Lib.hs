@@ -6,12 +6,12 @@ import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
 import Data.List(intercalate)
 import Data.List.Split(chunksOf)
-import Data.Ix(Ix)
 import Control.Monad(join)
 
 import Data.Monoid(Endo(..))
 import Data.Functor.Const(Const(..))
 import Data.Hashable(Hashable)
+import Data.Ix(Ix)
 
 import qualified Debug.Trace as Trace
 
@@ -33,9 +33,22 @@ import qualified System.Clock as Clock
 newtype FunName = FunName Int deriving (Eq,Num,Ord,Integral,Real,Enum,Hashable)
 newtype PredName = PredName Int deriving(Eq,Num,Ord,Integral,Real,Enum,Hashable)
 newtype VarName = VarName Int deriving (Eq,Num,Ord,Integral,Real,Enum,Hashable,Ix)
-instance Show FunName where { show (FunName n) = "f" ++ show n }
+
+eqPredName = -1 :: PredName
+redEQPredName = -2 :: PredName
+redLTPredName = -3 :: PredName
+
+extraConstName :: FunName
+extraConstName = -1
+
+instance Show FunName where {
+  show fn | fn==extraConstName = "c" ;
+  show (FunName n) = "f" ++ show n;
+}
 instance Show PredName where { show (PredName n) = "p" ++ show n }
 instance Show VarName where { show (VarName n) = "v" ++ show n }
+
+-------------------------------------------
 
 dPrint :: (Monad m, Show a) => a -> m ()
 dPrint = Trace.traceShowM 
@@ -74,6 +87,10 @@ assert (Right v) = return v
 assertMaybe :: Monad m => Maybe a -> m a
 assertMaybe Nothing = fail "Nothing"
 assertMaybe (Just v) = return v
+
+orFail :: Monad m => String -> Maybe a -> m a
+orFail msg Nothing = fail msg
+orFail _ (Just v) = return v
 
 --------------------------------------
 
