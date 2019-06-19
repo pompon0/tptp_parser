@@ -25,7 +25,7 @@ import Lib
 import qualified MGU
 import qualified Proto.Tptp as T
 
-import Form(freeVars'Formula,fromProto'Pred,toProto'Pred,NameIndex,M,RM,runM,runRM)
+import Form(freeVars'Formula,push,fromProto'Pred,toProto'Pred,NameIndex,M,RM,runM,runRM)
 import qualified Data.Text as Text
 import qualified Data.List.Ordered as Ordered
 import Control.Monad(foldM,when)
@@ -143,7 +143,7 @@ fromProto'Input i = do
     T.Input'NEGATED_CONJECTURE -> return ();
     role@_ -> fail ("unexpected role: " ++ show role);
   }
-  fromProto'Form (i^. #formula)
+  push freeVars (fromProto'Form (i^. #formula))
 
 fromProto'Form :: T.Formula -> M OrClause
 fromProto'Form f =
