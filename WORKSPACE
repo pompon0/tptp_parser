@@ -11,10 +11,12 @@ http_archive(
 )
 
 http_archive(
-	name = "com_google_protobuf",
-	strip_prefix = "protobuf-3.6.1.3",
-	urls = ["https://github.com/google/protobuf/archive/v3.6.1.3.zip"],
+  name = "com_google_protobuf",
+  strip_prefix = "protobuf-3.9.0",
+  urls = ["https://github.com/google/protobuf/archive/v3.9.0.zip"],
 )
+load("@com_google_protobuf//:protobuf_deps.bzl","protobuf_deps")
+protobuf_deps()
 
 ###################################
 

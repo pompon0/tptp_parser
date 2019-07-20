@@ -93,6 +93,7 @@ branchM :: (MonadState s m) => m a -> m a
 branchM task = do { s <- get; r <- task; put s; return r }
 
 allM :: [M a] -> M [a]
+--allM = mapM branchM
 allM [] = return []
 allM [t] = branchM t >>= return.(:[])
 allM tasks = do
@@ -114,6 +115,7 @@ allM tasks = do
       liftTab $ nodesLimit .= limit;
       branchM h >>= return.(:rt);
     }]
+
 
 throw :: M a
 throw = do
@@ -274,9 +276,9 @@ makeClausesSelector f = let { tree = DiscTree.build [(x^.atom'term,(l,x,r,cla)) 
     (l,x,r) <- select (cla^.orClauseCEE'atoms.orClause'atoms)]
   } in \a -> tree^..match (a^.atom'term)
 
-{-makeClausesSelector f = let { x = [lxr |
-    cla <- f^.notAndForm'orClauses,
-    lxr <- select (cla^.orClause'atoms)]
+{-makeClausesSelector f = let { x = [(l,x,r,cla) |
+    cla <- f^.notAndFormCEE'orClausesCEE,
+    (l,x,r) <- select (cla^.orClauseCEE'atoms.orClause'atoms)]
   } in \a -> x
 -}
 
@@ -326,7 +328,7 @@ proveLoop f limit = let
     (res,searchState) <- prove f i
     return (force searchState)
     t1 <- Clock.getTime Clock.ProcessCPUTime
-    printE (fromIntegral (searchState^.totalNodeCount) / diffSeconds t1 t0)
+    printE (fromIntegral (searchState^.totalNodeCount)) -- / diffSeconds t1 t0)
     case res of {
       Nothing -> do {
         putStrLnE (show i ++ " -> " ++ show (searchState^.failCount));
