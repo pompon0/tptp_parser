@@ -1,6 +1,6 @@
-load("//:hs.bzl","hs_stack_binaries")
+# load("//:hs.bzl","hs_stack_binaries")
 
-hs_stack_binaries(
+"""hs_stack_binaries(
   name = "tptp-parser",
   stack_yaml = "stack.yaml",
   srcs = glob([
@@ -16,5 +16,5 @@ hs_stack_binaries(
   ],
   bins = ["checker","conv","thread","parser"],
   visibility = ["//visibility:public"],
-)
+)"""
 

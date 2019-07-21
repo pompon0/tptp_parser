@@ -7,7 +7,7 @@ def _hs_stack_binaries(ctx):
   ctx.actions.run_shell(
     inputs = ctx.files.srcs + proto_files + ctx.files.stack_yaml,
     outputs = ctx.outputs.bins,
-    command = "export OUT=`realpath {}` && export HOME=~ && export PATH=$PATH && cd {} && stack install --local-bin-path=$OUT".format(out_dir,root_dir),
+    command = "cat /proc/mounts && export OUT=`realpath {}` && export HOME=~ && export PATH=$PATH && cd {} && stack install --local-bin-path=$OUT".format(out_dir,root_dir),
     # use_default_shell_env = True, # requires original HOME and PATH variables (see .bazelrc)
   )
 
