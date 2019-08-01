@@ -44,7 +44,8 @@ dependencies:
 - options
 - array
 
-ghc-options: -O2 -Werror -fbreak-on-error
+ld-options: -static
+ghc-options: -O2 -Werror -fbreak-on-error -fPIC
 
 library:
   source-dirs: src
