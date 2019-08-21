@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedLabels #-}
 module CheckerBin(main) where
 
 import Lib
@@ -7,6 +8,7 @@ import qualified Data.ProtoLens.TextFormat as TextFormat
 import Data.ProtoLens.Message(Message)
 import qualified Data.Text.Lazy as Text
 import qualified Proto.Tptp as T
+import qualified Proto.Solutions as SPB
 import qualified Proof
 import qualified Form
 import qualified ParserBin
@@ -19,6 +21,7 @@ import ParserBin(formToDNF)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Set.Monad as SetM
+import Control.Lens
 
 readAndParse :: String -> IO T.File
 readAndParse tptp_path = do
@@ -28,7 +31,7 @@ readAndParse tptp_path = do
 help = do
   putStrLn "conv [fof|cnf] [tptp_file] > [proto_file]"
   putStrLn "cnf [fof_proto_file] > [cnf_proto_file]"
-  putStrLn "validate [cnf_proto_problem] [cnf_proto_proof]"
+  putStrLn "validate [solution_proto_file] > [stats_proto_file]"
 
 
 conv [language,tptp_path] = do
@@ -47,14 +50,16 @@ cnf [fof_proto_file] = do
   (fof,ni) <- assert $ Form.runM (Form.fromProto'File file) Form.emptyNI
   assert (DNF.toProto (formToDNF fof) ni) >>= putStrLn . TextFormat.showMessage
 
-validate [cnf_proto_problem,cnf_proto_proof] = do
-  problemProto :: T.File <- readProtoFile cnf_proto_problem
-  proofProto :: T.File <- readProtoFile cnf_proto_proof
-  (problem,nameIndex) <- assert $ DNF.fromProto problemProto Form.emptyNI
-  (proof,_) <- assert $ DNF.fromProto proofProto nameIndex
-  putStrLn ("problem = " ++ show problem)
-  putStrLn ("proof = " ++ show proof)
-  Proof.check problem proof
+validate [solution_proto_file] = do
+  solutionProto :: SPB.CNF <- readProtoFile solution_proto_file
+  ((problem,proof,stats),_) <- assert $ Form.runM (do
+    problem <- DNF.fromProto'File (solutionProto^. #problem)
+    proof <- DNF.fromProto'File (solutionProto^. #proof)
+    stats <- Form.liftRM $ Proof.classify proof problem
+    return (problem,proof,stats)) Form.emptyNI
+  putStrLnE ("problem = " ++ show problem)
+  putStrLnE ("proof = " ++ show proof)
+  print stats
 
 main = do
   cmd:args <- getArgs

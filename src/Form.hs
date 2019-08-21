@@ -130,6 +130,9 @@ runM ma ni = case (ExceptM.runExcept $ StateM.runStateT ma (State ni [])) of
 runRM :: RM a -> NameIndex -> Either String a
 runRM ma ni = ExceptM.runExcept (ReaderM.runReaderT ma (revNI ni))
 
+liftRM :: RM a -> M a
+liftRM ma = use names >>= (lift . ReaderM.runReaderT ma . revNI)
+
 fromProto :: T.File -> Either String Form
 fromProto f = case runM (fromProto'File f) emptyNI of { Left e -> Left e; Right (f,ni) -> Right f }
 

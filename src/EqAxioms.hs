@@ -1,6 +1,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module EqAxioms(
-  appendEqAxioms, isEqAxiom
+  appendEqAxioms, isEqAxiom,
+  isReflAxiom, isSymmAxiom, isTransAxiom,
+  isPredCongAxiom, isFunCongAxiom,
 ) where
 
 import Lib
@@ -48,19 +50,20 @@ isSubRelation a b =
   let norm r = Set.fromList [if x<y then (x,y) else (y,x) | (x,y) <- r, x/=y]
   in Set.isSubsetOf (norm a) (norm b)
 
+isPredCongAxiom :: AndClause -> Maybe PredName
 isPredCongAxiom c = case (c^..negPred, c^..posPred.pred'pcustom) of
   ([p], [(pn',a')]) -> case unwrap p of
-    PCustom pn a -> pn==pn' && isSubRelation (zip a a') (c^..posPred.pred'peq) 
-    _ -> False
-  _ -> False
+    PCustom pn a -> if pn==pn' && isSubRelation (zip a a') (c^..posPred.pred'peq) then Just pn else Nothing
+    _ -> Nothing
+  _ -> Nothing
 
-isFunCongAxiom c = case (c^..negPred, c^..posPred.pred'pcustom) of
-  ([p], []) -> case unwrap p of
-    PEq t t' -> case (unwrap t, unwrap t') of
-      (TFun fn a, TFun fn' a') -> fn==fn' && isSubRelation (zip a a') (c^..posPred.pred'peq) 
-      _ -> False
-    _ -> False
-  _ -> False
+isFunCongAxiom :: AndClause -> Maybe FunName
+isFunCongAxiom c = do
+  p <- case (c^..negPred, c^..posPred.pred'pcustom) of { ([p],[]) -> return p; _ -> Nothing }
+  (t,t') <- case unwrap p of { PEq t t' -> return (t,t'); _ -> Nothing }
+  (fn,a) <- case unwrap t of { TFun fn a -> return (fn,a); _ -> Nothing }
+  (fn',a') <- case unwrap t' of { TFun fn' a' -> return (fn',a'); _ -> Nothing }
+  if fn==fn' && isSubRelation (zip a a') (c^..posPred.pred'peq) then Just fn else Nothing
 
 appendEqAxioms :: OrForm -> OrForm
 appendEqAxioms f = let {
@@ -94,7 +97,7 @@ appendEqAxioms f = let {
   } in f <> toOrForm (NotAndForm [reflAxiom,symmAxiom,transAxiom] <> congPredClauses <> congFunClauses)
 
 isEqAxiom :: AndClause -> Bool
-isEqAxiom c = isReflAxiom c || isSymmAxiom c || isTransAxiom c || isPredCongAxiom c || isFunCongAxiom c
+isEqAxiom c = isReflAxiom c || isSymmAxiom c || isTransAxiom c || isPredCongAxiom c /= Nothing || isFunCongAxiom c /= Nothing
 
 isReflAxiom c = case c of
   AndClause [Atom False p] -> case unwrap p of

@@ -57,6 +57,7 @@ library:
     - CheckerBin
     - Proto.Tptp
     - Proto.Proof
+    - Proto.Solutions
 
 tests:
   test:

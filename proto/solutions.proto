@@ -1,0 +1,23 @@
+syntax = "proto3";
+package solutions;
+
+import "tptp.proto";
+
+message CNF {
+  tptp.File problem = 1;
+  tptp.File proof = 2;
+}
+
+message Stats {
+  int64 refl = 1;
+  int64 symm = 2;
+  int64 trans = 3;
+
+  message PredMono { string name = 1; int64 count = 2; };
+  message FunMono { string name = 1; int64 count = 2; };
+  repeated PredMono pred_mono = 4;
+  repeated FunMono fun_mono = 5;
+
+  message OrClause { tptp.Input cla = 1; int64 count = 2; };
+  repeated OrClause or_clauses = 6;
+}

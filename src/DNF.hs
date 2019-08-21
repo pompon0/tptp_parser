@@ -15,7 +15,8 @@ module DNF(
   OrClause(..), orClause'atoms,
   notOrClause, notAndClause,
   toNotAndForm, toOrForm,
-  fromProto, toProto,
+  fromProto, fromProto'File,
+  toProto, toProto'Input,
 ) where
 
 import Prelude hiding(pred)
@@ -31,7 +32,7 @@ import qualified Data.List.Ordered as Ordered
 import Control.Monad(foldM,when)
 import qualified Control.Monad.Trans.Reader as ReaderM
 import Control.Lens
-import Data.List(intercalate)
+import Data.List(intercalate,find)
 import Data.List.Utils (replace)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -102,8 +103,8 @@ simplify (OrForm x) =
     notSubsumed = filter (\c -> not $ any (\x -> x /= c && subAnd x c) x) nonTrivial
   in OrForm notSubsumed
 
-isSubForm :: OrForm -> OrForm -> Bool
-isSubForm a b = all (\c -> any (isInstance c) (b^.orForm'andClauses)) (a^.orForm'andClauses)
+isSubForm :: OrForm -> OrForm -> Maybe [AndClause]
+isSubForm a b = mapM (\c -> find (isInstance c) (b^.orForm'andClauses)) (a^.orForm'andClauses)
 
 atom'runMGU :: (Atom,Atom) -> Valuation -> Maybe Valuation
 atom'runMGU (a1,a2) val = do
