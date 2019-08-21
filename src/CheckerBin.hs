@@ -56,10 +56,13 @@ validate [solution_proto_file] = do
     problem <- DNF.fromProto'File (solutionProto^. #problem)
     proof <- DNF.fromProto'File (solutionProto^. #proof)
     stats <- Form.liftRM $ Proof.classify proof problem
+    case counterExample proof of
+      Nothing -> return ()
+      Just x -> fail ("counter example: " ++ show x)
     return (problem,proof,stats)) Form.emptyNI
   putStrLnE ("problem = " ++ show problem)
   putStrLnE ("proof = " ++ show proof)
-  print stats
+  putStrLn (TextFormat.showMessage stats)
 
 main = do
   cmd:args <- getArgs

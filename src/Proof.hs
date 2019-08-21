@@ -49,7 +49,9 @@ classify (OrForm c0) f = do
   (c4,fmono) = partitionEithers (map (\c -> case isFunCongAxiom c of { Just fn -> Right fn; Nothing -> Left c }) c3);
   (c5,pmono) = partitionEithers (map (\c -> case isPredCongAxiom c of { Just pn -> Right pn; Nothing -> Left c }) c4);
   }
-  x <- assertMaybe $ isSubForm (OrForm c5) f;
+  x <- case isSubForm (OrForm c5) f of
+    Just x -> return x
+    Nothing -> fail "proof doesn't imply the formula"
   funMono <- forM (group $ sort fmono) (\l -> do
     mfn <- view (revFunNames.at (head l))
     fn <- assertMaybe mfn
