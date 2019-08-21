@@ -43,11 +43,11 @@ andClause'term = andClause'atoms.traverse.atom'args.traverse
 classify :: Proof -> OrForm -> RM SPB.Stats
 classify (OrForm c0) f = do
   let {
-  (c1,refl) = partition isReflAxiom c0;
-  (c2,symm) = partition isSymmAxiom c1;
-  (c3,trans) = partition isTransAxiom c2;
-  (c4,fmono) = partitionEithers (map (\c -> case isFunCongAxiom c of { Just fn -> Right fn; Nothing -> Left c }) c3);
-  (c5,pmono) = partitionEithers (map (\c -> case isPredCongAxiom c of { Just pn -> Right pn; Nothing -> Left c }) c4);
+  (refl,c1) = partition isReflAxiom c0;
+  (symm,c2) = partition isSymmAxiom c1;
+  (trans,c3) = partition isTransAxiom c2;
+  (fmono,c4) = partitionEithers (map (\c -> case isFunCongAxiom c of { Just fn -> Left fn; Nothing -> Right c }) c3);
+  (pmono,c5) = partitionEithers (map (\c -> case isPredCongAxiom c of { Just pn -> Left pn; Nothing -> Right c }) c4);
   }
   x <- case isSubForm (OrForm c5) f of
     Just x -> return x
