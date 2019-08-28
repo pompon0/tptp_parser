@@ -26,7 +26,6 @@ dependencies:
 - proto-lens-runtime
 - proto-lens
 - microlens
-- lens-labels
 - text
 - containers
 - mtl

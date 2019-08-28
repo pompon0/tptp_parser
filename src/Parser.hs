@@ -6,7 +6,7 @@ module Parser where
 import Prelude hiding(exponent,null)
 import Data.ProtoLens(defMessage)
 import Lens.Micro((.~),(^.),(&))
-import Lens.Labels.Unwrapped ()
+import Data.ProtoLens.Labels()
 
 import Lib
 import qualified Data.Text as Text

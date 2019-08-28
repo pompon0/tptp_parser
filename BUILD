@@ -1,20 +1,19 @@
-# load("//:hs.bzl","hs_stack_binaries")
+load("@rules_haskell//haskell:protobuf.bzl", "haskell_proto_toolchain")
 
-"""hs_stack_binaries(
-  name = "tptp-parser",
-  stack_yaml = "stack.yaml",
-  srcs = glob([
-    "src/**/*.hs",
-    "bin/*.hs",
-    "Setup.hs",
-    "tptp-parser.cabal",
-    "package.yaml",
-  ]),
-  protos = [
-    "//proto:tptp_proto",
-    "//proto:proof_proto",
+haskell_proto_toolchain(
+  name = "protobuf-toolchain",
+  protoc = "@com_google_protobuf//:protoc",
+  plugin = "@proto-lens-protoc//:proto-lens-protoc",
+  deps = [
+      "@stackage//:base",
+      "@stackage//:bytestring",
+      "@stackage//:containers",
+      "@stackage//:data-default-class",
+      "@stackage//:lens-family",
+      "@stackage//:proto-lens",
+      "@stackage//:text",
+      "@stackage//:deepseq",
+      "@stackage//:vector",
   ],
-  bins = ["checker","conv","thread","parser"],
-  visibility = ["//visibility:public"],
-)"""
+)
 

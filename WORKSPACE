@@ -20,30 +20,81 @@ protobuf_deps()
 
 ###################################
 
-'''http_archive(
-  name = "io_tweag_rules_haskell",
-  sha256 = "a19bb160ed6a02574a5ba8d44ac1797991f4ecc2aa34387ab568a05621f2e64a",
+http_archive(
+  name = "rules_haskell",
   strip_prefix = "rules_haskell-master",
-  urls = ["https://github.com/tweag/rules_haskell/archive/master.tar.gz"],
+  urls = ["https://github.com/pompon0/rules_haskell/archive/master.tar.gz"],
 )
 
-load("@io_tweag_rules_haskell//haskell:repositories.bzl","haskell_repositories")
-haskell_repositories()
-load("@io_tweag_rules_haskell//haskell:haskell.bzl","haskell_register_ghc_bindists","haskell_register_toolchains")
-# haskell_register_ghc_bindists(version = "8.6.4")
-haskell_register_toolchains(version = "8.6.4")
-
-load("@io_tweag_rules_haskell//tools:os_info.bzl", "os_info")
-os_info(name = "os_info")
+load("@rules_haskell//haskell:repositories.bzl", "rules_haskell_dependencies", "rules_haskell_toolchains")
+rules_haskell_dependencies()
+rules_haskell_toolchains()
 
 http_archive(
-  name = "ai_formation_hazel",
-  sha256 = "a19bb160ed6a02574a5ba8d44ac1797991f4ecc2aa34387ab568a05621f2e64a",
-  strip_prefix = "rules_haskell-master/hazel",
-  urls = ["https://github.com/tweag/rules_haskell/archive/master.tar.gz"],
+  name = "happy",
+  strip_prefix = "happy-1.19.10",
+  urls = ["http://hackage.haskell.org/package/happy-1.19.10/happy-1.19.10.tar.gz"],
+  sha256 = "22eb606c97105b396e1c7dc27e120ca02025a87f3e44d2ea52be6a653a52caed",
+  build_file = "//:third_party/happy.BUILD",
 )
 
-load("@ai_formation_hazel//:packages.bzl","core_packages","packages")
-load("@ai_formation_hazel//:hazel.bzl","hazel_repositories")
-hazel_repositories(core_packages=core_packages,packages=packages)
-'''
+load("@rules_haskell//haskell:cabal.bzl", "stack_snapshot")
+
+stack_snapshot(
+  name = "stackage",
+  packages = [
+    "base",
+    "data-default-class",
+    "haskell-src-exts",
+    "either",
+    "tasty-hunit",
+    "tasty",
+    "parsec",
+    "transformers",
+    "unix",
+    "bytestring",
+    "utf8-string",
+    "tar",
+    "http-conduit",
+    "zlib",
+    "lens",
+    "proto-lens-runtime",
+    "proto-lens",
+    "microlens",
+    "lens-family",
+    "text",
+    "containers",
+    "mtl",
+    "MissingH",
+    "threads",
+    "concurrent-extra",
+    "unbounded-delays",
+    "deepseq",
+    "split",
+    "data-ordlist",
+    "clock",
+    "hashable",
+    "hashtables",
+    "options",
+    "array",
+    "vector",
+  ],
+  snapshot = "lts-14.2",
+  tools = ["@happy"],
+)
+
+http_archive(
+  name = "set-monad",
+  strip_prefix = "set-monad-master",
+  urls = ["https://github.com/giorgidze/set-monad/archive/master.zip"],
+  build_file = "//:third_party/set-monad.BUILD",
+)
+
+http_archive(
+  name = "proto-lens-protoc",
+  urls = ["http://hackage.haskell.org/package/proto-lens-protoc-0.5.0.0/proto-lens-protoc-0.5.0.0.tar.gz"],
+  build_file = "//:third_party/proto-lens-protoc.BUILD",
+  strip_prefix = "proto-lens-protoc-0.5.0.0",
+)
+
+register_toolchains(":protobuf-toolchain")

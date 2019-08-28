@@ -14,7 +14,7 @@ import qualified Control.Monad.Trans.Except as ExceptM
 import qualified Control.Monad.Trans.Reader as ReaderM
 import qualified Control.Monad.Trans.State.Lazy as StateM
 import qualified Data.Map as Map
-import Lens.Labels.Unwrapped ()
+import Data.ProtoLens.Labels()
 import qualified Data.Text as Text
 import qualified Data.List as List
 import Data.Ix(Ix)

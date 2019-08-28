@@ -3,7 +3,7 @@ module ConvBin(main,
   readProtoTar,saveProtoTar) where
 
 import Lens.Micro((.~),(^.),(&))
-import Lens.Labels.Unwrapped ()
+import Data.ProtoLens.Labels()
 import qualified Network.HTTP.Simple as S
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Char8 as B8
